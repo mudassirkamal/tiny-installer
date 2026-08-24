@@ -12,12 +12,13 @@
 param(
   [string]$WallpaperUrl = "",                 # direct link to your JPG/PNG wallpaper
   [string]$CompanyName  = "My Company",
-  [string]$TimeZone     = "UTC",              # e.g. "Pakistan Standard Time"
+  [string]$TimeZone     = "",                  # leave empty to keep the VPS's own timezone
   [switch]$InstallChrome                       # optional: bake Google Chrome in
 )
 
 $ErrorActionPreference = "Continue"
 function Step($m){ Write-Host "==> $m" -ForegroundColor Cyan }
+function EnsureKey($p){ if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null } }
 
 # ------------------------------------------------------------------ Wallpaper
 if ($WallpaperUrl) {
@@ -50,7 +51,7 @@ Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyConti
 
 # ------------------------------------------------------- Quality-of-life tweaks
 Step "Disabling Server Manager auto-open at logon"
-New-Item -Path 'HKLM:\SOFTWARE\Microsoft\ServerManager' -Force | Out-Null
+EnsureKey 'HKLM:\SOFTWARE\Microsoft\ServerManager'
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\ServerManager' -Name DoNotOpenServerManagerAtLogon -Value 1 -Type DWord
 
 Step "Turning off IE Enhanced Security (so browsing works out of the box)"
@@ -59,8 +60,12 @@ $usr = 'HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{A509B1A8-37E
 Set-ItemProperty $adm -Name IsInstalled -Value 0 -ErrorAction SilentlyContinue
 Set-ItemProperty $usr -Name IsInstalled -Value 0 -ErrorAction SilentlyContinue
 
-Step "Setting time zone to '$TimeZone'"
-try { Set-TimeZone -Id $TimeZone } catch { Write-Host "   bad TimeZone id, left default" -ForegroundColor Yellow }
+if ($TimeZone) {
+  Step "Setting time zone to '$TimeZone'"
+  try { Set-TimeZone -Id $TimeZone } catch { Write-Host "   bad TimeZone id, left default" -ForegroundColor Yellow }
+} else {
+  Step "Leaving time zone as-is (matches each VPS's own location)"
+}
 
 Step "High performance: never sleep / never turn off display"
 powercfg /change standby-timeout-ac 0
@@ -72,7 +77,7 @@ try { Set-LocalUser -Name $env:USERNAME -PasswordNeverExpires $true } catch {}
 Step "Show file extensions + This PC on desktop"
 Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name HideFileExt -Value 0
 $icon='HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel'
-New-Item -Path $icon -Force | Out-Null
+EnsureKey $icon
 Set-ItemProperty $icon -Name '{20D04FE0-3AEA-1069-A2D8-08002B30309D}' -Value 0 -Type DWord
 
 # ---------------------------------------------------------------- Optional apps
