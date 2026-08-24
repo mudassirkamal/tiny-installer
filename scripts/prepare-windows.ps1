@@ -106,7 +106,7 @@ if ($InstallAgent) {
   # The agent runs as SYSTEM at boot. It runs ONCE per clone (a flag file gates
   # it) and reports credentials back to the panel BY IP (no per-deploy token, so
   # it works after a RAM-boot dd deploy). It also auto-extends C: to any disk.
-  # IMPORTANT: do NOT reboot this builder box after prepare — shut down and
+  # IMPORTANT: do NOT reboot this builder box after prepare - shut down and
   # capture from rescue, so the agent never runs here (only on deployed clones).
   $agent = @'
 $flag = "C:\ti-agent\done.flag"
