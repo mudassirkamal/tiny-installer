@@ -167,9 +167,11 @@ async function syncCommand(showToast) {
     currentCommand = res.command;
     renderCommand();
     if (res.config) {
-      $("#remotePort").value = res.config.remotePort;
-      if (!$("#userRandom").checked) $("#username").value = res.config.username;
-      $("#password").value = res.config.password;
+      const active = document.activeElement;
+      const setIf = (id, val) => { const el = $("#" + id); if (el && el !== active) el.value = val; };
+      setIf("remotePort", res.config.remotePort);
+      if (!$("#userRandom").checked) setIf("username", res.config.username);
+      setIf("password", res.config.password);
     }
     if (showToast) toast("Command updated");
     renderDeployments();
@@ -177,7 +179,12 @@ async function syncCommand(showToast) {
 }
 function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncCommand(false), 600); }
 ["osImage", "imageUrl", "remotePort", "username", "userRandom", "password", "node", "privateTracking", "preConfirmed", "getFileUrl"]
-  .forEach((id) => { const el = $("#" + id); if (el) el.addEventListener("change", scheduleSync); });
+  .forEach((id) => {
+    const el = $("#" + id);
+    if (!el) return;
+    el.addEventListener("change", scheduleSync);
+    el.addEventListener("input", scheduleSync);   // live: update on every keystroke
+  });
 
 function renderCommand() {
   if (!currentCommand) return;
