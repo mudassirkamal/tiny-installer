@@ -248,8 +248,10 @@ print_connect() { # print_connect <protocol label>
 
 finish_and_reboot() {
   say ""
-  ok "${c_grn}Deployment complete.${c_rst} Rebooting in 10s (Ctrl-C to cancel)…"
-  report "reboot" "Rebooting now" "completed"
+  ok "${c_grn}Staged.${c_rst} Rebooting in 10s to run the install in the background (Ctrl-C to cancel)…"
+  # NOTE: status is 'installing', NOT 'completed' — the OS only installs AFTER this
+  # reboot (10-25 min). The panel flips it to 'online' when the port actually opens.
+  report "reboot" "Rebooted into the installer — the OS is now installing in the background" "installing"
   sleep 10
   ( sleep 2; reboot -f 2>/dev/null || reboot ) &
   exit 0
