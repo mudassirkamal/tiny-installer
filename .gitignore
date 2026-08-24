@@ -4,3 +4,4 @@ data/db.json.tmp
 *.log
 .env
 .DS_Store
+data/images.json

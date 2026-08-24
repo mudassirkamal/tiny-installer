@@ -1,0 +1,18 @@
+[
+  {
+    "id": "ws2022-fast",
+    "type": "windows",
+    "label": "Windows Server 2022 (Fast ⚡)",
+    "imageUrl": "https://your-host.example.com/images/ws2022.img.gz",
+    "sizeGb": 11,
+    "cost": 1
+  },
+  {
+    "id": "win10-ltsc-fast",
+    "type": "windows",
+    "label": "Windows 10 LTSC (Fast ⚡)",
+    "imageUrl": "https://your-host.example.com/images/win10-ltsc.img.gz",
+    "sizeGb": 10,
+    "cost": 1
+  }
+]

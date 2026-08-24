@@ -83,7 +83,7 @@ function renderReference() {
 }
 function updateOsHint() {
   const meta = REF.osImages.find((o) => o.id === $("#osImage").value) || {};
-  const eng = meta.method === "dd" ? "raw image (dd)" : "reinstall engine";
+  const eng = meta.fast ? "⚡ fast image (dd, ~8-12 min)" : (meta.method === "dd" ? "raw image (dd)" : "reinstall engine (~15-20 min)");
   $("#osHint").textContent = `${meta.type} · ${eng}${meta.sizeGb ? " · " + meta.sizeGb + " GB" : ""} · ${meta.cost || 1} token`;
   // Show the Image URL field only when the OS needs one (custom, or Windows without a bundled ISO).
   $("#imageUrlRow").style.display = meta.needsUrl ? "" : "none";

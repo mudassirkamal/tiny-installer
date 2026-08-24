@@ -68,6 +68,17 @@ const GET_FILES = [
 ];
 function getFileMeta(id) { return GET_FILES.find((g) => g.id === id) || null; }
 
+// Merge operator-defined FAST images (pre-built raw disk images) from
+// data/images.json into the catalog. Each entry deploys by `dd` (~8-12 min).
+// See data/images.example.json for the format.
+try {
+  const custom = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "data", "images.json"), "utf8"));
+  if (Array.isArray(custom) && custom.length) {
+    OS_IMAGES.unshift(...custom.map((o) => ({ method: "dd", cost: 1, ...o })));
+    console.log(`  Loaded ${custom.length} custom fast image(s) from data/images.json`);
+  }
+} catch { /* no custom images configured — fine */ }
+
 // ---- Helpers --------------------------------------------------------------
 function send(res, code, body, headers = {}) {
   const h = { "Content-Type": "application/json", ...headers };
@@ -155,7 +166,8 @@ async function handleApi(req, res, pathname) {
     const osImages = OS_IMAGES.map((o) => ({
       id: o.id, type: o.type, label: o.label, method: o.method,
       sizeGb: o.sizeGb || 0, cost: o.cost || 1,
-      needsUrl: o.type === "custom" || (o.type === "windows" && !o.iso),
+      needsUrl: o.id === "custom-image" || (!o.iso && !o.imageUrl && o.type === "windows"),
+      fast: o.method === "dd" && !!o.imageUrl,
     }));
     return send(res, 200, { nodes: NODES, osImages, getFiles: GET_FILES });
   }
@@ -388,6 +400,8 @@ function buildRunnerConfig(d) {
   const meta = OS_IMAGES.find((o) => o.id === c.osImage) || {};
   // For Windows, a per-deploy Image URL overrides the catalog's default ISO.
   const iso = c.imageUrl || meta.iso || "";
+  // For dd/fast images, use the per-deploy URL or the catalog's preset image URL.
+  const rawImageUrl = c.imageUrl || meta.imageUrl || "";
   return {
     token: d.token,
     os_type: meta.type || "linux",
@@ -400,8 +414,8 @@ function buildRunnerConfig(d) {
     // reinstall — windows
     image_name: meta.imageName || "",
     iso_url: iso,
-    // dd / custom
-    image_url: c.imageUrl,
+    // dd / custom / fast pre-built image
+    image_url: rawImageUrl,
     get_file: c.getFile,
     remote_port: c.remotePort,
     username: c.username,
