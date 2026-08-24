@@ -285,7 +285,7 @@ async function renderDeployments() {
         <div class="kv"><div class="k">Password</div><div class="v">${esc(c.password)}${cp(c.password)}</div></div>
       </div>
       <div class="stages">${stages}</div>
-      ${done && ip ? `<div class="rdp-note">✓ Ready. Connect via ${d.config.osImage.startsWith("win") ? "Remote Desktop (RDP)" : "SSH"} to <b>${esc(ip)}:${esc(c.remotePort)}</b> as <b>${esc(c.username)}</b>.</div>` : ""}
+      ${done && ip ? `<div class="rdp-note">✓ Ready. Connect via ${/^(win|ws)/.test(c.osImage) ? "Remote Desktop (RDP)" : "SSH"} to <b>${esc(ip)}:${esc(c.remotePort)}</b> as <b>${esc(c.username)}</b>.</div>` : ""}
       ${d.postInstall ? `<div class="post"><div class="post-h">Post-install · ${esc(d.postInstall.label)} <span class="hint" style="margin:0">— run this once the server is online</span></div>
         <div class="cmdbox" style="margin-top:8px"><code>${esc(d.postInstall.command)}</code>
           <button class="copy pi-copy" data-cmd="${encodeURIComponent(d.postInstall.command)}" title="Copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div></div>` : ""}

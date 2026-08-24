@@ -259,6 +259,8 @@ async function handleApi(req, res, pathname) {
   if (mStatus && method === "GET") {
     const d = db.deployments.find((x) => x.token === mStatus[1]);
     if (!d) return send(res, 404, { error: "Unknown token." });
+    // Refresh live status on-demand (works even where background jobs are frozen).
+    await probeOne(d, { fast: true }).catch(() => {});
     const meta = OS_IMAGES.find((o) => o.id === d.config.osImage) || {};
     return send(res, 200, {
       token: d.token,
@@ -534,36 +536,39 @@ function httpGetText(host, port, path = "/", timeout = 6000) {
     req.on("error", () => resolve(null));
   });
 }
-async function probeDeployments() {
-  const targets = db.deployments.filter(
-    (d) => d.serverIp && ["running", "rebooting", "installing"].includes(d.status)
-  );
-  for (const d of targets) {
-    const port = d.config && d.config.remotePort;
-    // 1. Final state: the remote/RDP port is open → the OS is up.
-    if (port && (await tcpOpen(d.serverIp, port))) {
-      d.status = "online";
-      d.updatedAt = new Date().toISOString();
-      d.logs.push({ at: new Date().toISOString(), stage: "done", message: `Port ${port} is open — the server is online.` });
-      save();
-      continue;
-    }
-    // 2. Mid-install: relay the engine's live log page (port 80) into the panel.
-    const page = await httpGetText(d.serverIp, 80, "/");
-    if (page) {
-      const text = page.replace(/<[^>]+>/g, " ").replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
-      const tail = text.slice(-6000);
-      if (tail && tail !== d.installLog) {
-        d.installLog = tail;
-        if (d.status !== "installing") {
-          d.status = "installing";
-          d.logs.push({ at: new Date().toISOString(), stage: "reinstall", message: "Installing OS — live logs streaming from the target." });
-        }
-        d.updatedAt = new Date().toISOString();
-        save();
+// Probe ONE deployment: mark online if its port is open, else relay the live
+// install-log page (port 80). Runs both from the background loop (on a VPS) AND
+// on-demand from /api/status (so it also works on shared hosting that freezes
+// background jobs, as long as it allows the panel to make outbound calls).
+async function probeOne(d, { fast = false } = {}) {
+  if (!d || !d.serverIp || !["running", "rebooting", "installing"].includes(d.status)) return;
+  const t1 = fast ? 2500 : 4000, t2 = fast ? 3000 : 6000;
+  const port = d.config && d.config.remotePort;
+  if (port && (await tcpOpen(d.serverIp, port, t1))) {
+    d.status = "online";
+    d.updatedAt = new Date().toISOString();
+    d.logs.push({ at: new Date().toISOString(), stage: "done", message: `Port ${port} is open — the server is online.` });
+    save();
+    return;
+  }
+  const page = await httpGetText(d.serverIp, 80, "/", t2);
+  if (page) {
+    const text = page.replace(/<[^>]+>/g, " ").replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
+    const tail = text.slice(-6000);
+    if (tail && tail !== d.installLog) {
+      d.installLog = tail;
+      if (d.status !== "installing") {
+        d.status = "installing";
+        d.logs.push({ at: new Date().toISOString(), stage: "reinstall", message: "Installing OS — live logs streaming from the target." });
       }
+      d.updatedAt = new Date().toISOString();
+      save();
     }
   }
+}
+async function probeDeployments() {
+  for (const d of db.deployments.filter((x) => x.serverIp && ["running", "rebooting", "installing"].includes(x.status)))
+    await probeOne(d);
 }
 setInterval(() => { probeDeployments().catch(() => {}); }, 15000);
 
