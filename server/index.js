@@ -8,6 +8,29 @@ const url = require("url");
 const { db, save } = require("./db");
 const U = require("./util");
 
+// ---- Tiny .env loader (zero-dep) ------------------------------------------
+// Some hosts (e.g. SharkASP/iisnode) write a .env file but don't inject it into
+// process.env. Read it ourselves so TI_ACCESS_KEY / TI_SECRET actually apply.
+// Existing process.env values always win.
+(function loadDotEnv() {
+  const candidates = [
+    path.join(__dirname, "..", ".env"),
+    path.join(process.cwd(), ".env"),
+    path.join(__dirname, ".env"),
+  ];
+  for (const f of candidates) {
+    try {
+      const txt = fs.readFileSync(f, "utf8");
+      txt.split(/\r?\n/).forEach((line) => {
+        const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+        if (!m) return;
+        let val = m[2].trim().replace(/^["']|["']$/g, "");
+        if (process.env[m[1]] === undefined) process.env[m[1]] = val;
+      });
+    } catch { /* no .env here — fine */ }
+  }
+})();
+
 const PORT = process.env.PORT || 8787;
 const PUB = path.join(__dirname, "..", "public");
 const SETUP_SH = path.join(__dirname, "..", "scripts", "setup.sh");
