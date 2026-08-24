@@ -1,88 +1,104 @@
-# firstboot.ps1 — Fomze first-boot setup, run ONCE as SYSTEM on a freshly
-# installed Windows (triggered by our windows-resize.bat via the reinstall
-# engine's SetupComplete/GPO). No golden image, no manual step: every ISO deploy
-# runs this automatically. Branding + performance tuning + live progress feed.
+# firstboot.ps1 - the complete first-boot routine for a Fomze golden image.
+# The image bakes only a thin bootstrapper (see prepare-windows.ps1) that fetches
+# THIS file from the panel and runs it once per clone. Keeping the logic here
+# means you can change branding/optimization ANY TIME by editing this file on the
+# panel - no need to rebuild the image.
+#
+# Runs once, as SYSTEM, at first boot of a freshly dd'd clone. It:
+#   - extends C: to the full disk
+#   - sets a fresh random administrator password + enables RDP on port 22
+#   - reports the credentials back to the panel BY IP (so the panel shows them)
+#   - applies FOMZE wallpaper + Chrome + performance policies
+#   - streams a staged live feed, then marks the server online
 #
 # __API_BASE__ is replaced by the panel when it serves this file.
 
 $ErrorActionPreference = "Continue"
-$ProgressPreference    = "SilentlyContinue"   # fast Invoke-WebRequest on big files
+$ProgressPreference    = "SilentlyContinue"
 $panel   = "__API_BASE__"
 $company = "Fomze"
 $wallUrl = "https://res.cloudinary.com/dikxngewb/image/upload/v1787536969/fomze_vps_twsw6y.png"
+$user    = "administrator"
+$port    = 22
 
-# public IP (to match this server to its deployment on the panel)
+function EnsureKey($p){ if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null } }
+
+# wait for network (up to ~90s)
+for ($i=0; $i -lt 45; $i++) { if (Test-Connection -Count 1 -Quiet -ComputerName 8.8.8.8) { break }; Start-Sleep 2 }
+
+# public IP (to match this clone to its deployment on the panel)
 $ip = ""
 foreach ($u in @("https://api.ipify.org","https://ifconfig.me/ip","https://icanhazip.com")) {
   try { $ip = ("$((Invoke-RestMethod -Uri $u -TimeoutSec 8))").Trim(); if ($ip) { break } } catch {}
 }
-# report a live-feed line to the panel BY IP (best-effort). No status on
-# intermediate lines so it never downgrades an already-online deploy.
-function Report($stage, $msg, $status) {
+# post a live-feed line to the panel BY IP (best-effort)
+function Report($stage, $msg, $status, $extra) {
   if (-not $ip) { return }
   $b = @{ ip=$ip; stage=$stage; message=$msg }
   if ($status) { $b.status = $status }
+  if ($extra)  { foreach ($k in $extra.Keys) { $b[$k] = $extra[$k] } }
   try { Invoke-RestMethod -Uri "$panel/api/report-by-ip" -Method Post -Body ($b | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 15 | Out-Null } catch {}
 }
-function EnsureKey($p){ if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null } }
 
-Report "boot" "First boot - configuring your server"
+Report "boot" "Windows booted - configuring your server"
 
-# ---------------------------------------------------------------- Performance
-Report "optimize" "Applying performance settings and policies"
-# high performance power plan + never sleep/display-off + no hibernation
+# ------------------------------------------------------ extend C: to full disk
+try { $m = (Get-PartitionSupportedSize -DriveLetter C).SizeMax; Resize-Partition -DriveLetter C -Size $m -ErrorAction SilentlyContinue } catch {}
+try { "select volume C`r`nextend" | diskpart | Out-Null } catch {}
+Report "disk" "Expanded system disk to full size"
+
+# ------------------------------------------- fresh random admin password + RDP
+$chars = (48..57)+(65..90)+(97..122)
+$pw = (-join ($chars | Get-Random -Count 14 | ForEach-Object {[char]$_})) + "@9"
+cmd /c "net user `"$user`" `"$pw`"" | Out-Null
+cmd /c "net user `"$user`" /active:yes" | Out-Null
+try { Set-LocalUser -Name $user -PasswordNeverExpires $true -ErrorAction SilentlyContinue } catch {}
+Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -ErrorAction SilentlyContinue
+Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name PortNumber -Value $port -ErrorAction SilentlyContinue
+cmd /c "netsh advfirewall firewall add rule name=`"TI-RDP`" dir=in action=allow protocol=TCP localport=$port" | Out-Null
+Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
+Restart-Service TermService -Force -ErrorAction SilentlyContinue
+# tell the panel the real credentials right away (so it shows the correct password)
+Report "account" "Created administrator account and enabled Remote Desktop" "installing" @{ username=$user; password=$pw; port=$port }
+
+# ------------------------------------------------- performance policies + tweaks
 try { powercfg /setactive SCHEME_MIN } catch {}
 powercfg /change standby-timeout-ac 0 2>$null
 powercfg /change monitor-timeout-ac 0 2>$null
 powercfg /h off 2>$null
-# visual effects -> best performance
 EnsureKey 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects'
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name VisualFXSetting -Value 2 -Type DWord -ErrorAction SilentlyContinue
-# don't auto-open Server Manager at logon
 EnsureKey 'HKLM:\SOFTWARE\Microsoft\ServerManager'
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\ServerManager' -Name DoNotOpenServerManagerAtLogon -Value 1 -Type DWord -ErrorAction SilentlyContinue
-# turn off IE Enhanced Security (so browsing works out of the box)
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{A509B1A7-37EF-4b3f-8CFC-4F3A74704073}' -Name IsInstalled -Value 0 -ErrorAction SilentlyContinue
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{A509B1A8-37EF-4b3f-8CFC-4F3A74704073}' -Name IsInstalled -Value 0 -ErrorAction SilentlyContinue
-# reduce telemetry
 EnsureKey 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'
 Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' -Name AllowTelemetry -Value 0 -Type DWord -ErrorAction SilentlyContinue
 try { Set-Service DiagTrack -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service DiagTrack -Force -ErrorAction SilentlyContinue } catch {}
-# no network throttling
 EnsureKey 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' -Name NetworkThrottlingIndex -Value 0xffffffff -Type DWord -ErrorAction SilentlyContinue
-# show file extensions for the default profile (new users)
-try {
-  reg load "HKU\DEF" "C:\Users\Default\NTUSER.DAT" | Out-Null
-  reg add "HKU\DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f | Out-Null
-} catch {}
+Report "optimize" "Applied performance settings and policies"
 
-# ---------------------------------------------------------------- Ensure RDP
-# (the unattend already enables RDP + the chosen port; this is belt-and-suspenders)
-Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -ErrorAction SilentlyContinue
-Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
-
-# ------------------------------------------------------------------ Wallpaper
-Report "brand" "Applying $company wallpaper and branding"
+# ------------------------------------------------------------------- wallpaper
 try {
   $dir = "C:\Windows\Web\Wallpaper\Fomze"
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
   $wp = Join-Path $dir "wallpaper.jpg"
   if (Get-Command curl.exe -ErrorAction SilentlyContinue) { curl.exe -s -L -o $wp $wallUrl } else { Invoke-WebRequest $wallUrl -OutFile $wp -UseBasicParsing }
   if (Test-Path $wp) {
-    # default profile -> every user created later (incl. the admin's first logon) gets it
+    Set-ItemProperty 'HKCU:\Control Panel\Desktop' -Name Wallpaper      -Value $wp -ErrorAction SilentlyContinue
+    Set-ItemProperty 'HKCU:\Control Panel\Desktop' -Name WallpaperStyle -Value 10  -ErrorAction SilentlyContinue
+    reg load "HKU\DEF" "C:\Users\Default\NTUSER.DAT" 2>$null | Out-Null
     reg add "HKU\DEF\Control Panel\Desktop" /v Wallpaper      /t REG_SZ /d "$wp" /f | Out-Null
     reg add "HKU\DEF\Control Panel\Desktop" /v WallpaperStyle /t REG_SZ /d 10   /f | Out-Null
-    reg add "HKU\DEF\Control Panel\Desktop" /v TileWallpaper  /t REG_SZ /d 0    /f | Out-Null
+    reg unload "HKU\DEF" 2>$null | Out-Null
+    rundll32.exe user32.dll,UpdatePerUserSystemParameters 1, True
   }
 } catch {}
-try { reg unload "HKU\DEF" | Out-Null } catch {}
-
-# company name in system properties
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name RegisteredOrganization -Value $company -ErrorAction SilentlyContinue
+Report "brand" "Applied $company wallpaper and branding"
 
-# -------------------------------------------------------------------- Chrome
-Report "apps" "Installing Google Chrome"
+# ---------------------------------------------------------------------- Chrome
 try {
   $f = "$env:TEMP\chrome.exe"
   if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
@@ -92,6 +108,7 @@ try {
   }
   if (Test-Path $f) { Start-Process $f -ArgumentList "/silent","/install" -Wait }
 } catch {}
+Report "apps" "Installed Google Chrome"
 
-# --------------------------------------------------------------------- Done
-Report "done" "Setup complete - your server is ready" "online"
+# ------------------------------------------------------------------------ done
+Report "done" "Setup complete - your server is ready" "online" @{ username=$user; password=$pw; port=$port }

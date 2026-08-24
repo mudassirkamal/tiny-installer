@@ -108,53 +108,31 @@ if ($InstallAgent) {
   # it works after a RAM-boot dd deploy). It also auto-extends C: to any disk.
   # IMPORTANT: do NOT reboot this builder box after prepare - shut down and
   # capture from rescue, so the agent never runs here (only on deployed clones).
+  # Thin bootstrapper: runs ONCE per clone (flag file), then fetches the panel's
+  # firstboot.ps1 and runs it. All the real work (password, disk, wallpaper,
+  # Chrome, optimization, live feed) lives in firstboot.ps1 on the panel, so you
+  # can change branding ANY TIME without rebuilding the image.
   $agent = @'
 $flag = "C:\ti-agent\done.flag"
 if (Test-Path $flag) { exit }
 New-Item -ItemType File -Force -Path $flag | Out-Null   # run exactly once per clone
 $panel = "__PANEL_URL__"
-$user  = "administrator"
-$port  = 22
-# wait for network (up to ~60s)
-for ($i=0; $i -lt 30; $i++) { if (Test-Connection -Count 1 -Quiet -ComputerName 8.8.8.8) { break }; Start-Sleep 2 }
-# public IP (needed to match this clone to its deployment)
-$ip = ""
-foreach ($u in @("https://api.ipify.org","https://ifconfig.me/ip","https://icanhazip.com")) {
-  try { $ip = ("$((Invoke-RestMethod -Uri $u -TimeoutSec 8))").Trim(); if ($ip) { break } } catch {}
+# wait for network (up to ~90s)
+for ($i=0; $i -lt 45; $i++) { if (Test-Connection -Count 1 -Quiet -ComputerName 8.8.8.8) { break }; Start-Sleep 2 }
+# fetch the panel's first-boot routine and run it (retry a few times)
+$fb = "C:\ti-agent\run.ps1"
+foreach ($n in 1..6) {
+  try { Invoke-WebRequest "$panel/firstboot.ps1" -OutFile $fb -UseBasicParsing -TimeoutSec 30; if (Test-Path $fb) { break } } catch { Start-Sleep 10 }
 }
-# helper: post a live-feed progress line to the panel BY IP
-function Report($stage, $msg, $status) {
-  $b = @{ ip=$ip; stage=$stage; message=$msg; status=$status } | ConvertTo-Json
-  try { Invoke-RestMethod -Uri "$panel/api/report-by-ip" -Method Post -Body $b -ContentType "application/json" -TimeoutSec 15 | Out-Null } catch {}
-}
-Report "boot"    "Windows booted - running first-boot setup"        "installing"
-# auto-extend C: to fill whatever disk this clone landed on
-try { $m = (Get-PartitionSupportedSize -DriveLetter C).SizeMax; Resize-Partition -DriveLetter C -Size $m -ErrorAction SilentlyContinue } catch {}
-try { "select volume C`r`nextend" | diskpart | Out-Null } catch {}
-Report "disk"    "Expanded system disk to full size"                "installing"
-# random password for administrator
-$chars = (48..57)+(65..90)+(97..122)
-$pw = (-join ($chars | Get-Random -Count 14 | ForEach-Object {[char]$_})) + "@9"
-cmd /c "net user `"$user`" `"$pw`"" | Out-Null
-cmd /c "net user `"$user`" /active:yes" | Out-Null
-Report "account" "Created administrator account with a new password" "installing"
-# RDP on + firewall + port
-Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -ErrorAction SilentlyContinue
-Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name PortNumber -Value $port -ErrorAction SilentlyContinue
-cmd /c "netsh advfirewall firewall add rule name=`"TI-RDP`" dir=in action=allow protocol=TCP localport=$port" | Out-Null
-Restart-Service TermService -Force -ErrorAction SilentlyContinue
-Report "rdp"     "Enabled Remote Desktop on port $port"             "installing"
-# final: report credentials + flip to online (retry a few times)
-$body = @{ ip=$ip; username=$user; password=$pw; port=$port; status="online" } | ConvertTo-Json
-foreach ($n in 1..6) { try { Invoke-RestMethod -Uri "$panel/api/report-by-ip" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 20; break } catch { Start-Sleep 10 } }
+if (Test-Path $fb) { powershell -NoProfile -ExecutionPolicy Bypass -File $fb }
 # remove the scheduled task (keep the flag so it never runs again)
 schtasks /delete /tn "TIFirstBoot" /f | Out-Null
 '@
   $agent = $agent.Replace("__PANEL_URL__", $PanelUrl)
-  Set-Content -Path "$dir\firstboot.ps1" -Value $agent -Encoding ASCII
+  Set-Content -Path "$dir\agent.ps1" -Value $agent -Encoding ASCII
   # register it to run as SYSTEM at every startup
-  schtasks /create /tn "TIFirstBoot" /tr "powershell -NoProfile -ExecutionPolicy Bypass -File C:\ti-agent\firstboot.ps1" /sc onstart /ru SYSTEM /rl HIGHEST /f | Out-Null
-  Write-Host "   agent baked in (scheduled task TIFirstBoot)." -ForegroundColor Green
+  schtasks /create /tn "TIFirstBoot" /tr "powershell -NoProfile -ExecutionPolicy Bypass -File C:\ti-agent\agent.ps1" /sc onstart /ru SYSTEM /rl HIGHEST /f | Out-Null
+  Write-Host "   agent baked in (scheduled task TIFirstBoot -> fetches $PanelUrl/firstboot.ps1)." -ForegroundColor Green
 }
 
 # -------------------------------------------------------------- Branding string
