@@ -457,7 +457,11 @@ function buildCommand(req, d) {
 
 // ---- Server ---------------------------------------------------------------
 const server = http.createServer(async (req, res) => {
-  const { pathname } = url.parse(req.url);
+  // Behind IIS/iisnode the rewrite can hide the real path; recover it from the
+  // headers IIS provides, falling back to req.url for normal/reverse-proxy hosts.
+  const rawUrl = req.headers["x-original-url"] || req.headers["x-rewrite-url"] ||
+    (req.headers["x-original-uri"]) || req.url;
+  const { pathname } = url.parse(rawUrl);
   try {
     if (pathname === "/setup.sh" || pathname.startsWith("/api/"))
       return await handleApi(req, res, pathname);
