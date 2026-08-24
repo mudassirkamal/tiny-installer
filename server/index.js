@@ -461,6 +461,13 @@ const server = http.createServer(async (req, res) => {
   try {
     if (pathname === "/setup.sh" || pathname.startsWith("/api/"))
       return await handleApi(req, res, pathname);
+    // Serve helper scripts from the panel (so a private repo still works).
+    if (pathname === "/prepare-windows.ps1" || pathname === "/capture-image.sh") {
+      const f = path.join(__dirname, "..", "scripts", pathname.slice(1));
+      return fs.readFile(f, (e, buf) =>
+        e ? send(res, 404, { error: "not found" })
+          : send(res, 200, buf, { "Content-Type": "text/plain; charset=utf-8" }));
+    }
     // Shareable public live-status page: /d/<token>
     if (/^\/d\/[\w-]+$/.test(pathname)) {
       return fs.readFile(path.join(PUB, "status.html"), (e, buf) =>
