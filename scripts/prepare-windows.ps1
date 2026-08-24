@@ -67,9 +67,10 @@ if ($TimeZone) {
   Step "Leaving time zone as-is (matches each VPS's own location)"
 }
 
-Step "High performance: never sleep / never turn off display"
+Step "High performance: never sleep / never turn off display / no hibernation"
 powercfg /change standby-timeout-ac 0
 powercfg /change monitor-timeout-ac 0
+powercfg /h off   # disable hibernation -> clean shutdowns, so rescue can mount the disk read-write
 
 Step "Admin password never expires"
 try { Set-LocalUser -Name $env:USERNAME -PasswordNeverExpires $true } catch {}

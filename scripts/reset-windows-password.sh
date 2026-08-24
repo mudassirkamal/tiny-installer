@@ -48,12 +48,15 @@ HAVE_HIVEX=0
 command -v hivexregedit >/dev/null 2>&1 && HAVE_HIVEX=1
 
 # --- find the Windows partition (the one holding the SAM) ---
+# NTFS often mounts read-only if Windows used fast-startup/hibernation (dirty
+# volume). We clear the dirty flag (ntfsfix) and mount with remove_hiberfile,force.
 say "${c_c}Looking for the Windows partition...${c_0}"
 MNT=/mnt/win; mkdir -p "$MNT"
 SAMDIR=""; WINPART=""
 for part in $(lsblk -lnpo NAME,FSTYPE 2>/dev/null | awk '$2 ~ /ntfs/ {print $1}'); do
   umount "$MNT" 2>/dev/null || true
-  if mount -t ntfs-3g -o rw "$part" "$MNT" 2>/dev/null; then
+  ntfsfix -d "$part" >/dev/null 2>&1 || true      # clear the NTFS dirty flag
+  if mount -t ntfs-3g -o rw,remove_hiberfile,force "$part" "$MNT" 2>/dev/null; then
     d=$(find "$MNT" -maxdepth 3 -ipath "*/Windows/System32/config" -type d 2>/dev/null | head -n1)
     if [ -n "$d" ] && [ -f "$d/SAM" ]; then SAMDIR="$d"; WINPART="$part"; break; fi
     umount "$MNT" 2>/dev/null || true
@@ -61,6 +64,12 @@ for part in $(lsblk -lnpo NAME,FSTYPE 2>/dev/null | awk '$2 ~ /ntfs/ {print $1}'
 done
 [ -n "$SAMDIR" ] || die "Could not find a Windows install (SAM) on any NTFS partition."
 say "${c_g}Found Windows on $WINPART${c_0}"
+
+# --- verify the volume is actually writable (else everything below is a no-op) ---
+if ! ( touch "$MNT/.rwtest" 2>/dev/null && rm -f "$MNT/.rwtest" 2>/dev/null ); then
+  umount "$MNT" 2>/dev/null || true
+  die "Windows partition is read-only (fast-startup/hibernation left it dirty). Fix: in Windows run 'powercfg /h off' before shutting down, or reboot Windows fully once, then retry."
+fi
 
 # --- no --user: just list accounts ---
 if [ -z "$USER" ]; then
