@@ -377,8 +377,8 @@ function normalizeConfig(cfg) {
     imageUrl: (cfg.imageUrl || "").trim(),
     getFile: cfg.getFile || null,      // {id, url}
     node: cfg.node || "EU",
-    remotePort: cfg.remotePort || U.randomPort(),
-    username: cfg.usernameRandom ? U.randomUsername() : (cfg.username || U.randomUsername()),
+    remotePort: cfg.remotePort || 22,                       // default access/RDP port
+    username: cfg.usernameRandom ? U.randomUsername() : (cfg.username || "administrator"),
     password: (cfg.password && cfg.password.length) ? cfg.password : U.randomPassword(),
     privateTracking: !!cfg.privateTracking,
     preConfirmed: !!cfg.preConfirmed,
