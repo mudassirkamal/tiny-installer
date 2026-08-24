@@ -16,8 +16,20 @@
 set -u
 
 API_BASE="__API_BASE__"           # injected by the panel when serving this file
-TOKEN="${1:-}"
 SELF_CONFIRM_WORD="REINSTALL"
+
+# Parse args: first bare word = deploy token; -y/--yes = pre-confirm (no prompt);
+# -i=<id> = optional tracking/instance id (accepted for TinyInstaller-style
+# commands; the deploy token already drives the /d/<token> status page).
+TOKEN=""; PRE_CLI=0; INSTANCE=""
+for a in "$@"; do
+  case "$a" in
+    -y|--yes)  PRE_CLI=1 ;;
+    -i=*)      INSTANCE="${a#-i=}" ;;
+    -*)        : ;;                       # ignore any other flag
+    *)         [ -z "$TOKEN" ] && TOKEN="$a" ;;
+  esac
+done
 
 c_red=$'\e[31m'; c_grn=$'\e[32m'; c_ylw=$'\e[33m'; c_cyn=$'\e[36m'; c_dim=$'\e[2m'; c_rst=$'\e[0m'
 say()  { printf '%s\n' "  $*"; }
@@ -96,6 +108,7 @@ PASSWORD=$(jget "$CFG" password)
 MODE=$(jget "$CFG" mode)
 FORCE=$(jbool "$CFG" force)
 PRE_CONFIRMED=$(jbool "$CFG" pre_confirmed)
+[ "$PRE_CLI" = "1" ] && PRE_CONFIRMED=1     # -y on the command line forces pre-confirm
 INSTALL_GRUB=$(jbool "$CFG" install_grub)
 RESCUE_ENV=$(jbool "$CFG" rescue_env)
 CONVERT_GPT=$(jbool "$CFG" convert_gpt)

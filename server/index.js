@@ -557,7 +557,8 @@ function buildCommand(req, d) {
   const base = apiBase(req);
   const suffix = d.config.advanced.randomUrl ? `?r=${U.randHex(4)}` : "";
   const scriptUrl = `${base}/setup.sh${suffix}`;
-  return `(wget ${scriptUrl} -4O setup.sh || curl ${scriptUrl} -Lo setup.sh) && bash setup.sh ${d.token}`;
+  const yes = d.config.preConfirmed ? " -y" : "";
+  return `(wget ${scriptUrl} -4O setup.sh || curl ${scriptUrl} -Lo setup.sh) && bash setup.sh ${d.token}${yes}`;
 }
 
 // ---- Server ---------------------------------------------------------------
