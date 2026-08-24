@@ -1,6 +1,7 @@
 // TinyInstaller Panel — zero-dependency Node backend
 // Serves the dashboard, the account/deployment API, and the setup.sh reinstaller.
 const http = require("http");
+const https = require("https");
 const net = require("net");
 const fs = require("fs");
 const path = require("path");
@@ -561,6 +562,22 @@ function buildCommand(req, d) {
   return `(wget ${scriptUrl} -4O setup.sh || curl ${scriptUrl} -Lo setup.sh) && bash setup.sh ${d.token}${yes}`;
 }
 
+// Stream a file from an upstream HTTPS URL back to the client, following a few
+// redirects. Used by the /reinstall-conf/ proxy so the reinstall engine can
+// fetch its stock config files through our panel.
+function proxyUpstream(res, upstreamUrl, depth) {
+  if (depth > 3) return send(res, 502, { error: "too many redirects" });
+  https.get(upstreamUrl, (up) => {
+    if (up.statusCode >= 300 && up.statusCode < 400 && up.headers.location) {
+      up.resume();
+      return proxyUpstream(res, new URL(up.headers.location, upstreamUrl).toString(), depth + 1);
+    }
+    if (up.statusCode !== 200) { up.resume(); return send(res, up.statusCode || 502, { error: "upstream error" }); }
+    res.writeHead(200, { "Content-Type": up.headers["content-type"] || "application/octet-stream" });
+    up.pipe(res);
+  }).on("error", () => send(res, 502, { error: "upstream fetch failed" }));
+}
+
 // ---- Server ---------------------------------------------------------------
 const server = http.createServer(async (req, res) => {
   // Behind IIS/iisnode the rewrite can hide the real path; recover it from the
@@ -577,6 +594,33 @@ const server = http.createServer(async (req, res) => {
       return fs.readFile(f, (e, buf) =>
         e ? send(res, 404, { error: "not found" })
           : send(res, 200, buf, { "Content-Type": "text/plain; charset=utf-8" }));
+    }
+    // First-boot branding/optimize script (fetched by our windows-resize.bat on
+    // the freshly installed Windows). API base is injected so it can report back.
+    if (pathname === "/firstboot.ps1") {
+      const f = path.join(__dirname, "..", "scripts", "firstboot.ps1");
+      return fs.readFile(f, "utf8", (e, txt) =>
+        e ? send(res, 404, { error: "not found" })
+          : send(res, 200, txt.replace(/__API_BASE__/g, apiBase(req)), { "Content-Type": "text/plain; charset=utf-8" }));
+    }
+    // Reinstall-engine config proxy. The engine's `confhome` is pointed here so
+    // that OUR windows-resize.bat (which triggers first-boot branding) is used,
+    // while every other config file transparently falls through to upstream.
+    // This is how ISO deploys get branded with ZERO manual steps and no images.
+    if (pathname.startsWith("/reinstall-conf/")) {
+      const rel = pathname.slice("/reinstall-conf/".length);
+      if (rel === "windows-resize.bat") {
+        const f = path.join(__dirname, "..", "scripts", "windows-resize.bat");
+        return fs.readFile(f, "utf8", (e, txt) =>
+          e ? send(res, 404, { error: "not found" })
+            : send(res, 200, txt.replace(/__API_BASE__/g, apiBase(req)), { "Content-Type": "text/plain; charset=utf-8" }));
+      }
+      // everything else → transparently proxy from the upstream reinstall repo
+      // (server-side fetch, so it doesn't depend on the client following redirects).
+      if (/^[\w./-]+$/.test(rel) && !rel.includes("..")) {
+        return proxyUpstream(res, `https://raw.githubusercontent.com/bin456789/reinstall/main/${rel}`, 0);
+      }
+      return send(res, 404, { error: "not found" });
     }
     // Shareable public live-status page: /d/<token>
     if (/^\/d\/[\w-]+$/.test(pathname)) {
