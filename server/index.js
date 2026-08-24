@@ -636,28 +636,36 @@ async function probeOne(d, { fast = false } = {}) {
   const t1 = fast ? 2500 : 4000, t2 = fast ? 3000 : 6000;
   const port = d.config && d.config.remotePort;
   if (port) {
+    d.probe = d.probe || {};
     const r = await probePort(d.serverIp, port, t1);
     if (r.open && !r.ssh) {
-      // A non-SSH service is answering (Windows RDP) → genuinely online.
+      // A non-SSH service is answering (Windows RDP) → genuinely online. Remember
+      // when we last confirmed real RDP so a brief later hiccup doesn't flap it.
+      d.probe.onlineConfirmedAt = Date.now();
       if (d.status !== "online") {
         d.status = "online";
         d.updatedAt = new Date().toISOString();
-        d.logs.push({ at: new Date().toISOString(), stage: "done", message: `Port ${port} is open (RDP) — the server is online.` });
+        d.logs.push({ at: new Date().toISOString(), stage: "done", message: `Port ${port} answered as RDP — the server is online.` });
         save();
       }
       return;
     }
-    if (r.open && r.ssh) {
-      // SSH is answering → still Linux / the reinstall installer, NOT finished
-      // Windows. Ensure we show "installing" (correct any premature online).
-      if (d.status === "online" || d.status === "running") {
+    // Not reachable as Windows RDP right now: either SSH is answering (the
+    // reinstall installer, still on port 22) or the port is closed (mid-install /
+    // reboot). Either way it is NOT the finished Windows. Only keep an "online"
+    // status if we confirmed real RDP within the last 2 minutes (transient blip);
+    // otherwise correct it back to "installing".
+    if (d.status === "online" || d.status === "running") {
+      const okAt = d.probe.onlineConfirmedAt || 0;
+      if (Date.now() - okAt > 120000) {
         d.status = "installing";
         d.updatedAt = new Date().toISOString();
-        d.logs.push({ at: new Date().toISOString(), stage: "reinstall", message: "Windows is still installing (the installer is up, not the finished OS)." });
+        d.logs.push({ at: new Date().toISOString(), stage: "reinstall", message: "Not reachable over RDP yet — Windows is still installing." });
         save();
+      } else {
+        return;   // recently confirmed online; treat this as a transient hiccup
       }
     }
-    // r.open === false → server is mid-reboot; leave status as-is (don't flap).
   }
   if (d.status === "online") return;
   const page = await httpGetText(d.serverIp, 80, "/", t2);
