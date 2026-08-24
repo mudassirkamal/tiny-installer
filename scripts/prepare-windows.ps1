@@ -1,5 +1,5 @@
 <#
-  prepare-windows.ps1 — brand + preconfigure a Windows box before capturing it
+  prepare-windows.ps1  -  brand + preconfigure a Windows box before capturing it
   as a golden image, so customers get a ready-to-use server.
 
   Run INSIDE the freshly installed Windows (over RDP), in an ELEVATED PowerShell:
@@ -27,11 +27,11 @@ if ($WallpaperUrl) {
   $wp = Join-Path $dir "wallpaper.jpg"
   try {
     Invoke-WebRequest -Uri $WallpaperUrl -OutFile $wp -UseBasicParsing
-    # current (admin) account — persists because the image keeps this account
+    # current (admin) account  -  persists because the image keeps this account
     Set-ItemProperty 'HKCU:\Control Panel\Desktop' -Name Wallpaper       -Value $wp
     Set-ItemProperty 'HKCU:\Control Panel\Desktop' -Name WallpaperStyle  -Value 10   # 10 = Fill
     Set-ItemProperty 'HKCU:\Control Panel\Desktop' -Name TileWallpaper   -Value 0
-    # default profile — any NEW user created later also gets it
+    # default profile  -  any NEW user created later also gets it
     reg load "HKU\DEF" "C:\Users\Default\NTUSER.DAT" | Out-Null
     reg add "HKU\DEF\Control Panel\Desktop" /v Wallpaper      /t REG_SZ /d $wp /f | Out-Null
     reg add "HKU\DEF\Control Panel\Desktop" /v WallpaperStyle /t REG_SZ /d 10  /f | Out-Null
@@ -93,4 +93,4 @@ Write-Host ""
 Write-Host "All set. Company: $CompanyName" -ForegroundColor Green
 Write-Host "Next: set the admin password you want customers to receive, e.g.:" -ForegroundColor Green
 Write-Host "   net user $env:USERNAME YourFixedPass123!" -ForegroundColor White
-Write-Host "Then shut down:  shutdown /s /t 0   — and capture the disk (BUILD-FAST-IMAGE.md)." -ForegroundColor Green
+Write-Host "Then shut down:  shutdown /s /t 0    -  and capture the disk (BUILD-FAST-IMAGE.md)." -ForegroundColor Green
