@@ -1,0 +1,469 @@
+// TinyInstaller Panel — zero-dependency Node backend
+// Serves the dashboard, the account/deployment API, and the setup.sh reinstaller.
+const http = require("http");
+const net = require("net");
+const fs = require("fs");
+const path = require("path");
+const url = require("url");
+const { db, save } = require("./db");
+const U = require("./util");
+
+const PORT = process.env.PORT || 8787;
+const PUB = path.join(__dirname, "..", "public");
+const SETUP_SH = path.join(__dirname, "..", "scripts", "setup.sh");
+
+// ---- Reference data -------------------------------------------------------
+const NODES = [
+  { id: "EU", label: "EU — Frankfurt" },
+  { id: "US", label: "US — New York" },
+  { id: "ASIA", label: "Asia — Singapore" },
+];
+
+// OS catalog — mirrors TinyInstaller's dropdown.
+//  method "reinstall"  → installed by the bin456789/reinstall engine (real, on a running VPS)
+//    - linux distros:   { distro, version }
+//    - windows:         { imageName (WIM edition), iso (Microsoft ISO URL) }
+//  method "dd"          → a pre-built raw disk image is streamed onto the disk
+//  method "custom"      → user supplies the image/ISO URL at deploy time
+// sizeGb / cost are shown in the UI (cost = usage tokens consumed), matching TinyInstaller.
+const OS_IMAGES = [
+  // ---- Windows Server ----
+  { id: "ws2022-datacenter-eval", type: "windows", label: "Windows Server 2022 Datacenter Evaluation", method: "reinstall",
+    imageName: "Windows Server 2022 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195280", sizeGb: 11, cost: 1 },
+  { id: "ws2022-standard-eval", type: "windows", label: "Windows Server 2022 Standard Evaluation", method: "reinstall",
+    imageName: "Windows Server 2022 SERVERSTANDARD", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195280", sizeGb: 12, cost: 1 },
+  { id: "ws2019-datacenter-eval", type: "windows", label: "Windows Server 2019 Datacenter Evaluation", method: "reinstall",
+    imageName: "Windows Server 2019 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195167", sizeGb: 11, cost: 1 },
+  { id: "ws2016-datacenter-eval", type: "windows", label: "Windows Server 2016 Datacenter Evaluation", method: "reinstall",
+    imageName: "Windows Server 2016 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195174", sizeGb: 12, cost: 1 },
+  { id: "ws2012r2-datacenter", type: "windows", label: "Windows Server 2012 R2 Datacenter", method: "reinstall",
+    imageName: "Windows Server 2012 R2 SERVERDATACENTER", iso: "", sizeGb: 9, cost: 1 },
+  // ---- Windows desktop (LTSC) ----
+  { id: "win10-ltsc-2021", type: "windows", label: "Windows 10 LTSC 2021 Evaluation", method: "reinstall",
+    imageName: "Windows 10 Enterprise LTSC 2021", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195448", sizeGb: 10, cost: 1 },
+  { id: "win10-ltsc-2019", type: "windows", label: "Windows 10 LTSC 2019 Evaluation", method: "reinstall",
+    imageName: "Windows 10 Enterprise LTSC 2019", iso: "", sizeGb: 9, cost: 1 },
+  { id: "win11-pro", type: "windows", label: "Windows 11 Pro", method: "reinstall",
+    imageName: "Windows 11 Pro", iso: "", sizeGb: 12, cost: 1 },
+  // ---- Linux ----
+  { id: "ubuntu-24.04", type: "linux", label: "Ubuntu 24.04 LTS", method: "reinstall", distro: "ubuntu", version: "24.04", sizeGb: 3.5, cost: 1 },
+  { id: "ubuntu-22.04", type: "linux", label: "Ubuntu 22.04 LTS", method: "reinstall", distro: "ubuntu", version: "22.04", sizeGb: 3.5, cost: 1 },
+  { id: "debian-12", type: "linux", label: "Debian 12", method: "reinstall", distro: "debian", version: "12", sizeGb: 3, cost: 1 },
+  { id: "debian-11", type: "linux", label: "Debian 11", method: "reinstall", distro: "debian", version: "11", sizeGb: 3, cost: 1 },
+  { id: "mint-22", type: "linux", label: "Linux Mint 22 Xfce", method: "reinstall", distro: "debian", version: "12", desktop: "xfce", sizeGb: 12, cost: 1 },
+  { id: "alpine-3.20", type: "linux", label: "Alpine 3.20", method: "reinstall", distro: "alpine", version: "3.20", sizeGb: 1, cost: 1 },
+  { id: "rocky-9", type: "linux", label: "Rocky Linux 9", method: "reinstall", distro: "rocky", version: "9", sizeGb: 3, cost: 1 },
+  // ---- Custom ----
+  { id: "custom-image", type: "custom", label: "Custom image (.img / .gz / .zip / .iso direct link)", method: "dd", sizeGb: 0, cost: 1 },
+];
+
+// "Get File" quick-picks — a browser/tool to install once the box is online.
+// `win`/`nix` are direct installer URLs; `winArgs` runs it silently on Windows.
+const GET_FILES = [
+  { id: "chrome",  label: "Google Chrome", win: "https://dl.google.com/chrome/install/standalonesetup64.exe", winArgs: "/silent /install" },
+  { id: "firefox", label: "Firefox",       win: "https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US", winArgs: "/S" },
+  { id: "brave",   label: "Brave",         win: "https://laptop-updates.brave.com/latest/winx64", winArgs: "/silent /install" },
+  { id: "edge",    label: "Microsoft Edge",win: "https://go.microsoft.com/fwlink/?linkid=2109047&Channel=Stable&language=en", winArgs: "/silent /install" },
+  { id: "7zip",    label: "7-Zip",         win: "https://www.7-zip.org/a/7z2408-x64.exe", winArgs: "/S" },
+];
+function getFileMeta(id) { return GET_FILES.find((g) => g.id === id) || null; }
+
+// ---- Helpers --------------------------------------------------------------
+function send(res, code, body, headers = {}) {
+  const h = { "Content-Type": "application/json", ...headers };
+  res.writeHead(code, h);
+  if (Buffer.isBuffer(body) || typeof body === "string") res.end(body);
+  else res.end(JSON.stringify(body));
+}
+function readBody(req) {
+  return new Promise((resolve) => {
+    let d = "";
+    req.on("data", (c) => (d += c));
+    req.on("end", () => {
+      try { resolve(d ? JSON.parse(d) : {}); } catch { resolve({}); }
+    });
+  });
+}
+function parseCookies(req) {
+  const out = {};
+  (req.headers.cookie || "").split(";").forEach((p) => {
+    const i = p.indexOf("=");
+    if (i > -1) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim());
+  });
+  return out;
+}
+function currentUser(req) {
+  const token = parseCookies(req).ti_session;
+  if (!token) return null;
+  const s = db.sessions.find((x) => x.token === token);
+  if (!s) return null;
+  return db.users.find((u) => u.id === s.userId) || null;
+}
+function publicUser(u) {
+  return {
+    id: u.id, email: u.email, plan: u.plan,
+    accountNo: u.accountNo,
+    expiresAt: u.expiresAt, createdAt: u.createdAt,
+    usageTotal: u.usageTotal, usageLeft: u.usageLeft,
+    maxProcesses: u.maxProcesses,
+    activeProcesses: db.deployments.filter(
+      (d) => d.userId === u.id && d.status === "running"
+    ).length,
+  };
+}
+function apiBase(req) {
+  const proto = (req.headers["x-forwarded-proto"] || "http").split(",")[0];
+  const host = req.headers.host;
+  return `${proto}://${host}`;
+}
+function daysFromNow(n) {
+  return new Date(Date.now() + n * 86400000).toISOString();
+}
+
+// ---- Static files ---------------------------------------------------------
+const MIME = {
+  ".html": "text/html", ".css": "text/css", ".js": "text/javascript",
+  ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json",
+};
+function serveStatic(req, res, pathname) {
+  let rel = pathname === "/" ? "/index.html" : pathname;
+  const file = path.join(PUB, path.normalize(rel).replace(/^(\.\.[/\\])+/, ""));
+  if (!file.startsWith(PUB)) return send(res, 403, { error: "forbidden" });
+  fs.readFile(file, (err, data) => {
+    if (err) {
+      // SPA-ish fallback to index for unknown non-API paths
+      return fs.readFile(path.join(PUB, "index.html"), (e2, idx) =>
+        e2 ? send(res, 404, { error: "not found" }) :
+             send(res, 200, idx, { "Content-Type": "text/html" }));
+    }
+    send(res, 200, data, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream" });
+  });
+}
+
+// ---- API ------------------------------------------------------------------
+async function handleApi(req, res, pathname) {
+  const method = req.method;
+
+  // Public: serve setup.sh with API base injected
+  if (pathname === "/setup.sh" && method === "GET") {
+    let sh = fs.readFileSync(SETUP_SH, "utf8").replace(/__API_BASE__/g, apiBase(req));
+    return send(res, 200, sh, { "Content-Type": "text/x-shellscript; charset=utf-8" });
+  }
+
+  // Public reference data (trimmed — no internal ISO defaults)
+  if (pathname === "/api/reference" && method === "GET") {
+    const osImages = OS_IMAGES.map((o) => ({
+      id: o.id, type: o.type, label: o.label, method: o.method,
+      sizeGb: o.sizeGb || 0, cost: o.cost || 1,
+      needsUrl: o.type === "custom" || (o.type === "windows" && !o.iso),
+    }));
+    return send(res, 200, { nodes: NODES, osImages, getFiles: GET_FILES });
+  }
+
+  // ---- Auth ----
+  if (pathname === "/api/register" && method === "POST") {
+    const { email, password } = await readBody(req);
+    if (!email || !password || password.length < 6)
+      return send(res, 400, { error: "Email and a 6+ char password are required." });
+    if (db.users.find((u) => u.email.toLowerCase() === String(email).toLowerCase()))
+      return send(res, 409, { error: "An account with that email already exists." });
+    const { salt, hash } = U.hashPassword(password);
+    const user = {
+      id: U.uuid(),
+      accountNo: 10000 + db.users.length + 1,
+      email, passHash: hash, salt,
+      plan: "Personal",
+      createdAt: new Date().toISOString(),
+      expiresAt: daysFromNow(30),
+      usageTotal: 10, usageLeft: 10,
+      maxProcesses: 2,
+    };
+    db.users.push(user);
+    save();
+    return login(res, user);
+  }
+
+  if (pathname === "/api/login" && method === "POST") {
+    const { email, password } = await readBody(req);
+    const user = db.users.find((u) => u.email.toLowerCase() === String(email || "").toLowerCase());
+    if (!user || !U.verifyPassword(password || "", user.salt, user.passHash))
+      return send(res, 401, { error: "Invalid email or password." });
+    return login(res, user);
+  }
+
+  if (pathname === "/api/logout" && method === "POST") {
+    const token = parseCookies(req).ti_session;
+    db.sessions = db.sessions.filter((s) => s.token !== token);
+    save();
+    return send(res, 200, { ok: true }, {
+      "Set-Cookie": "ti_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax",
+    });
+  }
+
+  // ---- Token-authed endpoints (called by setup.sh, no cookie) ----
+  // The deployment token in the path IS the credential.
+  const mDeploy = pathname.match(/^\/api\/deploy\/([\w-]+)$/);
+  if (mDeploy && method === "GET") {
+    const d = db.deployments.find((x) => x.token === mDeploy[1]);
+    if (!d) return send(res, 404, { error: "Unknown deployment token." });
+    return send(res, 200, buildRunnerConfig(d));
+  }
+  const mLog = pathname.match(/^\/api\/deploy\/([\w-]+)\/log$/);
+  if (mLog && method === "POST") {
+    const d = db.deployments.find((x) => x.token === mLog[1]);
+    if (!d) return send(res, 404, { error: "Unknown token." });
+    const { stage, message, status, ip } = await readBody(req);
+    if (ip) d.serverIp = String(ip).slice(0, 64);
+    if (stage || message) d.logs.push({ at: new Date().toISOString(), stage: stage || "", message: message || "" });
+    if (status) d.status = status;
+    d.updatedAt = new Date().toISOString();
+    save();
+    return send(res, 200, { ok: true });
+  }
+
+  // ---- Everything below requires a signed-in user ----
+  const user = currentUser(req);
+  if (pathname.startsWith("/api/") && !user)
+    return send(res, 401, { error: "Not signed in." });
+
+  if (pathname === "/api/me" && method === "GET")
+    return send(res, 200, { user: publicUser(user) });
+
+  // Renew: top up usage tokens and extend expiry (operator self-service).
+  if (pathname === "/api/renew" && method === "POST") {
+    user.usageLeft = user.usageTotal;
+    user.expiresAt = daysFromNow(30);
+    save();
+    return send(res, 200, { user: publicUser(user) });
+  }
+
+  if (pathname === "/api/deploy" && method === "POST") {
+    const cfg = await readBody(req);
+    return createDeployment(req, res, user, cfg);
+  }
+
+  // Regenerate token (security notice in the UI)
+  const mReg = pathname.match(/^\/api\/deploy\/([\w-]+)\/regenerate$/);
+  if (mReg && method === "POST") {
+    const d = db.deployments.find((x) => x.token === mReg[1] && x.userId === user.id);
+    if (!d) return send(res, 404, { error: "Not found." });
+    d.token = U.uuid();
+    d.updatedAt = new Date().toISOString();
+    save();
+    return send(res, 200, { token: d.token, command: buildCommand(req, d) });
+  }
+
+  if (pathname === "/api/deployments" && method === "GET") {
+    return send(res, 200, {
+      deployments: db.deployments
+        .filter((d) => d.userId === user.id)
+        .map((d) => ({
+          token: d.token, status: d.status, config: d.config,
+          serverIp: d.serverIp || null, updatedAt: d.updatedAt,
+          createdAt: d.createdAt, logs: d.logs,
+          postInstall: buildPostInstall(d),
+        }))
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    });
+  }
+
+  // ---- Profiles ----
+  if (pathname === "/api/profiles" && method === "GET")
+    return send(res, 200, { profiles: db.profiles.filter((p) => p.userId === user.id) });
+
+  if (pathname === "/api/profiles" && method === "POST") {
+    const { name, config } = await readBody(req);
+    if (!name) return send(res, 400, { error: "Profile name required." });
+    const p = { id: U.uuid(), userId: user.id, name, config: config || {} };
+    db.profiles.push(p);
+    save();
+    return send(res, 200, { profile: p });
+  }
+
+  const mProf = pathname.match(/^\/api\/profiles\/([\w-]+)$/);
+  if (mProf && method === "DELETE") {
+    const before = db.profiles.length;
+    db.profiles = db.profiles.filter((p) => !(p.id === mProf[1] && p.userId === user.id));
+    if (db.profiles.length === before) return send(res, 404, { error: "Profile not found." });
+    save();
+    return send(res, 200, { ok: true });
+  }
+
+  return send(res, 404, { error: "No such endpoint." });
+}
+
+function login(res, user) {
+  const token = U.signSession(user.id);
+  db.sessions.push({ token, userId: user.id, createdAt: new Date().toISOString() });
+  save();
+  return send(res, 200, { user: publicUser(user) }, {
+    "Set-Cookie": `ti_session=${token}; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax`,
+  });
+}
+
+function createDeployment(req, res, user, cfg) {
+  const config = normalizeConfig(cfg);
+  const meta = OS_IMAGES.find((o) => o.id === config.osImage) || {};
+  const cost = meta.cost || 1;
+
+  if (user.usageLeft < cost)
+    return send(res, 402, { error: `Not enough usage tokens (need ${cost}, have ${user.usageLeft}). Renew to top up.` });
+
+  const active = db.deployments.filter((x) => x.userId === user.id && ["running", "rebooting"].includes(x.status)).length;
+  if (active >= user.maxProcesses)
+    return send(res, 429, { error: `Concurrent deployment limit reached (${user.maxProcesses}). Wait for one to finish.` });
+
+  const d = {
+    token: U.uuid(),
+    userId: user.id,
+    config,
+    cost,
+    status: "ready",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    logs: [],
+  };
+  // Charge tokens on creation (mirrors TinyInstaller's "1 token" per deployment).
+  user.usageLeft -= cost;
+  db.deployments.push(d);
+  save();
+  return send(res, 200, {
+    token: d.token,
+    command: buildCommand(req, d),
+    config,
+    usageLeft: user.usageLeft,
+  });
+}
+
+function normalizeConfig(cfg) {
+  const adv = cfg.advanced || {};
+  return {
+    osImage: cfg.osImage || "debian-12",
+    imageUrl: (cfg.imageUrl || "").trim(),
+    getFile: cfg.getFile || null,      // {id, url}
+    node: cfg.node || "EU",
+    remotePort: cfg.remotePort || U.randomPort(),
+    username: cfg.usernameRandom ? U.randomUsername() : (cfg.username || U.randomUsername()),
+    password: (cfg.password && cfg.password.length) ? cfg.password : U.randomPassword(),
+    privateTracking: !!cfg.privateTracking,
+    preConfirmed: !!cfg.preConfirmed,
+    initScript: cfg.initScript || "",
+    advanced: {
+      mode: adv.mode || "auto",       // auto | direct | compatibility
+      force: !!adv.force,
+      installGrub: !!adv.installGrub,
+      rescueEnv: !!adv.rescueEnv,
+      convertGpt: !!adv.convertGpt,
+      randomUrl: !!adv.randomUrl,
+    },
+  };
+}
+
+// Config the setup.sh actually consumes.
+function buildRunnerConfig(d) {
+  const c = d.config;
+  const meta = OS_IMAGES.find((o) => o.id === c.osImage) || {};
+  // For Windows, a per-deploy Image URL overrides the catalog's default ISO.
+  const iso = c.imageUrl || meta.iso || "";
+  return {
+    token: d.token,
+    os_type: meta.type || "linux",
+    os_image: c.osImage,
+    method: meta.method || "reinstall",
+    // reinstall — linux
+    distro: meta.distro || "",
+    distro_version: meta.version || "",
+    desktop: meta.desktop || "",
+    // reinstall — windows
+    image_name: meta.imageName || "",
+    iso_url: iso,
+    // dd / custom
+    image_url: c.imageUrl,
+    get_file: c.getFile,
+    remote_port: c.remotePort,
+    username: c.username,
+    password: c.password,
+    mode: c.advanced.mode,
+    force: c.advanced.force,
+    install_grub: c.advanced.installGrub,
+    rescue_env: c.advanced.rescueEnv,
+    convert_gpt: c.advanced.convertGpt,
+    init_script: c.initScript,
+  };
+}
+
+// Post-install command for the selected "Get File" app, to run once online.
+function buildPostInstall(d) {
+  const gf = d.config.getFile;
+  if (!gf || !gf.id) return null;
+  const meta = getFileMeta(gf.id);
+  const isWin = (OS_IMAGES.find((o) => o.id === d.config.osImage) || {}).type === "windows";
+  const url = gf.url || (meta && (isWin ? meta.win : meta.win)) || "";
+  if (!url) return null;
+  const label = (meta && meta.label) || gf.id;
+  if (isWin) {
+    const args = (meta && meta.winArgs) || "/silent";
+    return {
+      label, os: "windows",
+      command: `powershell -Command "$f=\\"$env:TEMP\\app.exe\\"; Invoke-WebRequest '${url}' -OutFile $f; Start-Process $f -ArgumentList '${args}' -Wait"`,
+    };
+  }
+  return { label, os: "linux", command: `curl -fL '${url}' -o /tmp/app && chmod +x /tmp/app && /tmp/app || true` };
+}
+
+function buildCommand(req, d) {
+  const base = apiBase(req);
+  const suffix = d.config.advanced.randomUrl ? `?r=${U.randHex(4)}` : "";
+  const scriptUrl = `${base}/setup.sh${suffix}`;
+  return `(wget ${scriptUrl} -4O setup.sh || curl ${scriptUrl} -Lo setup.sh) && bash setup.sh ${d.token}`;
+}
+
+// ---- Server ---------------------------------------------------------------
+const server = http.createServer(async (req, res) => {
+  const { pathname } = url.parse(req.url);
+  try {
+    if (pathname === "/setup.sh" || pathname.startsWith("/api/"))
+      return await handleApi(req, res, pathname);
+    return serveStatic(req, res, pathname);
+  } catch (e) {
+    console.error(e);
+    return send(res, 500, { error: "Server error." });
+  }
+});
+
+// ---- Live reachability prober --------------------------------------------
+// For deployments that have rebooted into install, TCP-probe IP:remotePort.
+// When the port answers, the OS is really up → mark "online".
+function tcpOpen(host, port, timeout = 4000) {
+  return new Promise((resolve) => {
+    const sock = new net.Socket();
+    let done = false;
+    const finish = (ok) => { if (done) return; done = true; sock.destroy(); resolve(ok); };
+    sock.setTimeout(timeout);
+    sock.once("connect", () => finish(true));
+    sock.once("timeout", () => finish(false));
+    sock.once("error", () => finish(false));
+    sock.connect(port, host);
+  });
+}
+async function probeDeployments() {
+  const targets = db.deployments.filter(
+    (d) => d.serverIp && ["running", "rebooting"].includes(d.status)
+  );
+  for (const d of targets) {
+    const port = d.config && d.config.remotePort;
+    if (!port) continue;
+    const up = await tcpOpen(d.serverIp, port);
+    if (up) {
+      d.status = "online";
+      d.updatedAt = new Date().toISOString();
+      d.logs.push({ at: new Date().toISOString(), stage: "done", message: `Port ${port} is open — the server is online.` });
+      save();
+    }
+  }
+}
+setInterval(() => { probeDeployments().catch(() => {}); }, 20000);
+
+server.listen(PORT, () => {
+  console.log(`\n  TinyInstaller Panel running →  http://localhost:${PORT}\n`);
+});

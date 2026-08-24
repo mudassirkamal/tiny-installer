@@ -1,0 +1,5 @@
+# Automatic HTTPS for the panel. Set DOMAIN in .env and use the `tls` profile.
+{$DOMAIN} {
+	reverse_proxy panel:8787
+	encode gzip
+}

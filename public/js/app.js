@@ -1,0 +1,308 @@
+// TinyInstaller Panel — front-end
+const $ = (s) => document.querySelector(s);
+const api = async (path, opts = {}) => {
+  const r = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || "Request failed");
+  return data;
+};
+const toast = (m) => { const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove("show"), 1800); };
+
+let REF = { nodes: [], osImages: [], getFiles: [] };
+let ME = null;
+let cmdOS = "linux";
+let currentToken = null;
+let currentCommand = "";
+const GF_ICONS = { chrome: "🌐", firefox: "🦊", edge: "🌊", brave: "🦁", "7zip": "🗜️" };
+
+// ---------- Auth ----------
+let authMode = "login";
+function showAuth() { $("#auth").classList.remove("hidden"); $("#app").classList.add("hidden"); }
+function showApp() { $("#auth").classList.add("hidden"); $("#app").classList.remove("hidden"); }
+
+function bindAuthToggle() { $("#authToggle").onclick = toggleAuth; }
+function toggleAuth() {
+  authMode = authMode === "login" ? "register" : "login";
+  $("#authSub").textContent = authMode === "login" ? "Sign in to your deployment panel" : "Create your deployment panel account";
+  $("#authBtn").textContent = authMode === "login" ? "Sign in" : "Create account";
+  $("#authSwitch").innerHTML = authMode === "login"
+    ? 'No account? <a id="authToggle">Create one</a>'
+    : 'Have an account? <a id="authToggle">Sign in</a>';
+  bindAuthToggle();
+  $("#authErr").textContent = "";
+}
+bindAuthToggle();
+
+$("#authBtn").onclick = async () => {
+  const email = $("#authEmail").value.trim();
+  const password = $("#authPass").value;
+  $("#authErr").textContent = "";
+  try {
+    const path = authMode === "login" ? "/api/login" : "/api/register";
+    const { user } = await api(path, { method: "POST", body: { email, password } });
+    ME = user; await boot();
+  } catch (e) { $("#authErr").textContent = e.message; }
+};
+$("#authPass").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#authBtn").click(); });
+
+$("#logoutBtn").onclick = async () => { await api("/api/logout", { method: "POST" }); location.reload(); };
+
+// ---------- Boot ----------
+async function boot() {
+  REF = await api("/api/reference");
+  renderReference();
+  renderAccount();
+  await loadProfiles();
+  showApp();
+  startPolling();
+}
+function renderReference() {
+  const os = $("#osImage"); os.innerHTML = "";
+  REF.osImages.forEach((o) => {
+    const opt = document.createElement("option");
+    opt.value = o.id;
+    const size = o.sizeGb ? `${o.sizeGb} GB · ` : "";
+    opt.textContent = `${o.label}  —  ${size}${o.cost} token`;
+    os.appendChild(opt);
+  });
+  const node = $("#node"); node.innerHTML = "";
+  REF.nodes.forEach((n) => { const opt = document.createElement("option"); opt.value = n.id; opt.textContent = n.label; node.appendChild(opt); });
+  const gf = $("#getFiles"); gf.innerHTML = "";
+  REF.getFiles.forEach((f) => {
+    const el = document.createElement("div");
+    el.className = "gf"; el.dataset.id = f.id; el.title = f.label;
+    el.innerHTML = `<span class="ic">${GF_ICONS[f.id] || "📦"}</span>`;
+    el.onclick = () => { el.classList.toggle("on"); };
+    gf.appendChild(el);
+  });
+  updateOsHint();
+}
+function updateOsHint() {
+  const meta = REF.osImages.find((o) => o.id === $("#osImage").value) || {};
+  const eng = meta.method === "dd" ? "raw image (dd)" : "reinstall engine";
+  $("#osHint").textContent = `${meta.type} · ${eng}${meta.sizeGb ? " · " + meta.sizeGb + " GB" : ""} · ${meta.cost || 1} token`;
+  // Show the Image URL field only when the OS needs one (custom, or Windows without a bundled ISO).
+  $("#imageUrlRow").style.display = meta.needsUrl ? "" : "none";
+  const inp = $("#imageUrl");
+  if (inp) inp.placeholder = meta.type === "windows"
+    ? "https://…/windows.iso  (Microsoft ISO direct link)"
+    : "https://…/image.img.gz  (raw disk image direct link)";
+}
+$("#osImage").addEventListener("change", updateOsHint);
+
+function renderAccount() {
+  $("#greetName").textContent = "Hi " + (ME.email.split("@")[0].replace(/^./, (c) => c.toUpperCase()));
+  $("#accountNo").textContent = "# " + ME.accountNo;
+  $("#planBadge").firstChild.textContent = ME.plan + " ";
+  // expiry
+  const now = Date.now();
+  const created = new Date(ME.createdAt).getTime();
+  const exp = new Date(ME.expiresAt).getTime();
+  const totalMs = exp - created;
+  const leftMs = Math.max(0, exp - now);
+  const days = Math.ceil(leftMs / 86400000);
+  $("#expBar").style.width = Math.max(2, Math.min(100, (leftMs / totalMs) * 100)) + "%";
+  $("#expDays").textContent = days + " days remaining";
+  $("#expDate").textContent = new Date(ME.expiresAt).toISOString().slice(0, 19).replace("T", " ");
+  // usage
+  $("#useBar").style.width = Math.max(2, (ME.usageLeft / ME.usageTotal) * 100) + "%";
+  $("#useLeft").textContent = ME.usageLeft + " remaining";
+  // processes
+  const pct = Math.round((ME.activeProcesses / ME.maxProcesses) * 100);
+  $("#procBar").style.width = pct + "%";
+  $("#procTxt").textContent = `${ME.activeProcesses} / ${ME.maxProcesses} (${pct}%)`;
+}
+
+// ---------- Config collection ----------
+function collectConfig() {
+  const selGf = $("#getFiles .gf.on");
+  return {
+    osImage: $("#osImage").value,
+    imageUrl: $("#imageUrl").value.trim(),
+    getFile: selGf ? { id: selGf.dataset.id, url: $("#getFileUrl").value.trim() } : null,
+    node: $("#node").value,
+    remotePort: $("#remotePort").value ? Number($("#remotePort").value) : undefined,
+    username: $("#username").value.trim(),
+    usernameRandom: $("#userRandom").checked,
+    password: $("#password").value,
+    privateTracking: $("#privateTracking").checked,
+    preConfirmed: $("#preConfirmed").checked,
+    advanced: {
+      mode: $("#modeSeg .on").dataset.mode,
+      force: $("#force").checked,
+      installGrub: $("#installGrub").checked,
+      rescueEnv: $("#rescueEnv").checked,
+      convertGpt: $("#convertGpt").checked,
+      randomUrl: $("#randomUrl").checked,
+    },
+  };
+}
+
+// ---------- Command ----------
+$("#genBtn").onclick = async () => {
+  try {
+    const res = await api("/api/deploy", { method: "POST", body: collectConfig() });
+    currentToken = res.token;
+    currentCommand = res.command;
+    renderCommand();
+    // reflect assigned values
+    $("#remotePort").value = res.config.remotePort;
+    if (!$("#userRandom").checked && !$("#username").value) $("#username").value = res.config.username;
+    if (!$("#password").value) $("#password").value = res.config.password;
+    toast("Deployment command generated");
+    ME = (await api("/api/me")).user; renderAccount();
+    renderDeployments();
+  } catch (e) { toast(e.message); }
+};
+
+function renderCommand() {
+  if (!currentCommand) return;
+  if (cmdOS === "windows") {
+    // Windows uses PowerShell to fetch + run under WSL/bash-equivalent; show a PS wrapper.
+    const psUrl = currentCommand.match(/wget (\S+)/)[1];
+    $("#cmd").textContent =
+      `# Run in an elevated PowerShell on the target Windows host\n` +
+      `curl.exe -Lo setup.sh "${psUrl}"; bash setup.sh ${currentToken}`;
+  } else {
+    $("#cmd").textContent = currentCommand;
+  }
+}
+document.querySelectorAll(".cmd-tabs button").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll(".cmd-tabs button").forEach((x) => x.classList.remove("on"));
+    b.classList.add("on"); cmdOS = b.dataset.os; renderCommand();
+  };
+});
+$("#copyCmd").onclick = async () => {
+  const txt = $("#cmd").textContent;
+  try { await navigator.clipboard.writeText(txt); toast("Copied"); } catch { toast("Copy failed"); }
+};
+
+// ---------- Advanced ----------
+$("#advHead").onclick = () => $("#adv").classList.toggle("open");
+document.querySelectorAll("#modeSeg button").forEach((b) => {
+  b.onclick = () => { document.querySelectorAll("#modeSeg button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); };
+});
+$("#regenLink").onclick = async () => {
+  if (!currentToken) return toast("Generate a command first");
+  try {
+    const res = await api(`/api/deploy/${currentToken}/regenerate`, { method: "POST" });
+    currentToken = res.token; currentCommand = res.command; renderCommand();
+    toast("Token regenerated — old command is now invalid");
+  } catch (e) { toast(e.message); }
+};
+// ---------- Profiles ----------
+let PROFILES = [];
+async function loadProfiles() {
+  try { PROFILES = (await api("/api/profiles")).profiles; } catch { PROFILES = []; }
+  const sel = $("#profileSelect");
+  sel.innerHTML = '<option value="">Pre-select deployment profile…</option>' +
+    PROFILES.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
+}
+function applyProfile(cfg) {
+  if (!cfg) return;
+  if (cfg.osImage) { $("#osImage").value = cfg.osImage; updateOsHint(); }
+  $("#imageUrl").value = cfg.imageUrl || "";
+  $("#node").value = cfg.node || "EU";
+  $("#remotePort").value = cfg.remotePort || "";
+  $("#username").value = cfg.username || "";
+  $("#userRandom").checked = !!cfg.usernameRandom;
+  $("#password").value = cfg.password || "";
+  $("#privateTracking").checked = cfg.privateTracking !== false;
+  $("#preConfirmed").checked = !!cfg.preConfirmed;
+  const a = cfg.advanced || {};
+  ["force", "installGrub", "rescueEnv", "convertGpt", "randomUrl"].forEach((k) => { if ($("#" + k)) $("#" + k).checked = !!a[k]; });
+  document.querySelectorAll("#modeSeg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === (a.mode || "auto")));
+  // get-file chip
+  document.querySelectorAll("#getFiles .gf").forEach((el) => el.classList.toggle("on", cfg.getFile && el.dataset.id === cfg.getFile.id));
+  $("#getFileUrl").value = (cfg.getFile && cfg.getFile.url) || "";
+}
+$("#profileSelect").addEventListener("change", (e) => {
+  const p = PROFILES.find((x) => x.id === e.target.value);
+  if (p) { applyProfile(p.config); toast(`Loaded “${p.name}”`); }
+});
+$("#deleteProfile").onclick = async () => {
+  const id = $("#profileSelect").value;
+  if (!id) return toast("Pick a profile to delete");
+  try { await api(`/api/profiles/${id}`, { method: "DELETE" }); await loadProfiles(); toast("Profile deleted"); }
+  catch (e) { toast(e.message); }
+};
+$("#saveProfile").onclick = async () => {
+  const name = prompt("Name this deployment profile:");
+  if (!name) return;
+  try { await api("/api/profiles", { method: "POST", body: { name, config: collectConfig() } }); await loadProfiles(); toast("Profile saved"); }
+  catch (e) { toast(e.message); }
+};
+$("#renewBtn").onclick = async () => {
+  try { ME = (await api("/api/renew", { method: "POST" })).user; renderAccount(); toast("Renewed — tokens topped up, expiry extended"); }
+  catch (e) { toast(e.message); }
+};
+$("#themeToggle").onclick = () => toast("Dark theme is the house style ✦");
+
+// ---------- Deployment tracking ----------
+const STAGES = ["start", "network", "download", "reinstall", "reboot", "done"];
+const cp = (val) => `<span class="cp" title="Copy" data-cp="${encodeURIComponent(val)}">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span>`;
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function stageIndex(logs) {
+  let idx = 0;
+  for (const l of logs) { const i = STAGES.indexOf(l.stage); if (i > idx) idx = i; }
+  return idx;
+}
+function osLabel(id) { const o = REF.osImages.find((x) => x.id === id); return o ? o.label : id; }
+
+async function renderDeployments() {
+  let list = [];
+  try { list = (await api("/api/deployments")).deployments; } catch { return; }
+  const track = $("#track");
+  if (!list.length) { track.innerHTML = `<p class="hint">No deployments yet — generate a command above to start one.</p>`; return; }
+  track.innerHTML = list.map((d) => {
+    const c = d.config;
+    const done = d.status === "completed" || d.status === "online";
+    const si = d.status === "online" ? STAGES.length - 1 : stageIndex(d.logs);
+    const stages = STAGES.map((s, i) =>
+      `<span class="stage ${i <= si && d.status !== "ready" ? "done" : ""}">${s}</span>`).join("");
+    const logs = d.logs.slice(-12).map((l) =>
+      `<div><span class="ts">${(l.at || "").slice(11, 19)}</span> ${esc(l.stage ? "[" + l.stage + "] " : "")}${esc(l.message)}</div>`).join("") || `<div class="hint">Waiting for the server to run the command…</div>`;
+    const ip = d.serverIp;
+    return `<div class="dep">
+      <div class="dep-top">
+        <span class="os">${esc(osLabel(c.osImage))}</span>
+        <span class="tok">${d.token.slice(0, 8)}…</span>
+        <div class="spacer"></div>
+        <span class="st ${d.status}"><span class="dot"></span>${d.status}</span>
+      </div>
+      <div class="conn">
+        <div class="kv"><div class="k">Server IP</div><div class="v">${ip ? esc(ip) + cp(ip) : '<span class="hint" style="margin:0">pending…</span>'}</div></div>
+        <div class="kv"><div class="k">Port</div><div class="v">${esc(c.remotePort)}${cp(c.remotePort)}</div></div>
+        <div class="kv"><div class="k">Username</div><div class="v">${esc(c.username)}${cp(c.username)}</div></div>
+        <div class="kv"><div class="k">Password</div><div class="v">${esc(c.password)}${cp(c.password)}</div></div>
+      </div>
+      <div class="stages">${stages}</div>
+      ${done && ip ? `<div class="rdp-note">✓ Ready. Connect via ${d.config.osImage.startsWith("win") ? "Remote Desktop (RDP)" : "SSH"} to <b>${esc(ip)}:${esc(c.remotePort)}</b> as <b>${esc(c.username)}</b>.</div>` : ""}
+      ${d.postInstall ? `<div class="post"><div class="post-h">Post-install · ${esc(d.postInstall.label)} <span class="hint" style="margin:0">— run this once the server is online</span></div>
+        <div class="cmdbox" style="margin-top:8px"><code>${esc(d.postInstall.command)}</code>
+          <button class="copy pi-copy" data-cmd="${encodeURIComponent(d.postInstall.command)}" title="Copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div></div>` : ""}
+      <div class="log">${logs}</div>
+    </div>`;
+  }).join("");
+  track.querySelectorAll(".cp").forEach((el) => {
+    el.onclick = async () => { try { await navigator.clipboard.writeText(decodeURIComponent(el.dataset.cp)); toast("Copied"); } catch {} };
+  });
+  track.querySelectorAll(".pi-copy").forEach((el) => {
+    el.onclick = async () => { try { await navigator.clipboard.writeText(decodeURIComponent(el.dataset.cmd)); toast("Post-install command copied"); } catch {} };
+  });
+}
+let pollTimer = null;
+function startPolling() { renderDeployments(); clearInterval(pollTimer); pollTimer = setInterval(renderDeployments, 4000); }
+
+// ---------- Init ----------
+(async () => {
+  try { const { user } = await api("/api/me"); ME = user; await boot(); }
+  catch { showAuth(); }
+})();

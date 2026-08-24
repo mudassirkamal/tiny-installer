@@ -1,0 +1,38 @@
+services:
+  panel:
+    build: .
+    container_name: tinyinstaller-panel
+    restart: unless-stopped
+    environment:
+      - PORT=8787
+      - TI_SECRET=${TI_SECRET:?set TI_SECRET in .env}
+    volumes:
+      - ./data:/app/data
+    # HTTP mode (no domain): panel is reachable on http://SERVER_IP:8787
+    # Comment this out if you use the caddy profile below.
+    ports:
+      - "8787:8787"
+
+  # ---- Optional: automatic HTTPS via Caddy --------------------------------
+  # Enable with:  DOMAIN=panel.example.com docker compose --profile tls up -d
+  # Then remove the panel "ports" mapping above so only Caddy is exposed.
+  caddy:
+    image: caddy:2-alpine
+    container_name: tinyinstaller-caddy
+    restart: unless-stopped
+    profiles: ["tls"]
+    depends_on:
+      - panel
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
