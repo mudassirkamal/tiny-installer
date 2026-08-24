@@ -18,6 +18,7 @@ param(
 )
 
 $ErrorActionPreference = "Continue"
+$ProgressPreference = "SilentlyContinue"   # makes Invoke-WebRequest fast on big files
 function Step($m){ Write-Host "==> $m" -ForegroundColor Cyan }
 function EnsureKey($p){ if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null } }
 
@@ -87,7 +88,11 @@ if ($InstallChrome) {
   Step "Installing Google Chrome"
   $f = "$env:TEMP\chrome.exe"
   try {
-    Invoke-WebRequest "https://dl.google.com/chrome/install/standalonesetup64.exe" -OutFile $f -UseBasicParsing
+    if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+      curl.exe -s -L -o $f "https://dl.google.com/chrome/install/standalonesetup64.exe"
+    } else {
+      Invoke-WebRequest "https://dl.google.com/chrome/install/standalonesetup64.exe" -OutFile $f -UseBasicParsing
+    }
     Start-Process $f -ArgumentList "/silent","/install" -Wait
   } catch { Write-Host "   chrome install failed: $_" -ForegroundColor Yellow }
 }
