@@ -87,42 +87,71 @@ grep -qi "written\|hive" /tmp/chntpw.log || { cat /tmp/chntpw.log; die "chntpw d
 say "${c_g}Password cleared + account enabled.${c_0}"
 
 # --- one-command mode: arm auto set-password (needs hivexregedit) ---
+ARMED=0
 if [ -n "$PASSWORD" ] && [ "$HAVE_HIVEX" = "1" ]; then
-  SOFTWARE="$SAMDIR/SOFTWARE"
+  SOFTWARE="$SAMDIR/SOFTWARE"; SYSTEM="$SAMDIR/SYSTEM"
   if [ -f "$SOFTWARE" ]; then
     say "${c_c}Arming auto set-password on next boot...${c_0}"
-    printf '@echo off\r\nnet user "%s" "%s" >"%%SystemDrive%%\\resetpw.log" 2>&1\r\nreg delete "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon" /v AutoAdminLogon /f\r\nreg delete "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon" /v DefaultUserName /f\r\nreg delete "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon" /v DefaultPassword /f\r\nreg delete "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon" /v ForceAutoLogon /f\r\ndel "%%~f0"\r\n' "$USER" "$PASSWORD" > "$MNT/resetpw.cmd"
+
+    # read the computer name (autologon needs DefaultDomainName = machine name)
+    CNAME=""
+    for cs in ControlSet001 ControlSet002 CurrentControlSet; do
+      CNAME=$(hivexget "$SYSTEM" "$cs\\Control\\ComputerName\\ComputerName" ComputerName 2>/dev/null) && [ -n "$CNAME" ] && break
+    done
+    [ -n "$CNAME" ] || CNAME="."
+
+    # self-logging batch: proves it ran, sets the password, then removes autologon
+    W='HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+    {
+      printf '@echo off\r\n'
+      printf 'echo [%%date%% %%time%%] reset running for %s > "%%SystemDrive%%\\resetpw.log"\r\n' "$USER"
+      printf 'net user "%s" "%s" >> "%%SystemDrive%%\\resetpw.log" 2>&1\r\n' "$USER" "$PASSWORD"
+      printf 'echo net-user-exit=%%errorlevel%% >> "%%SystemDrive%%\\resetpw.log"\r\n'
+      printf 'reg delete "%s" /v AutoAdminLogon /f\r\n' "$W"
+      printf 'reg delete "%s" /v DefaultPassword /f\r\n' "$W"
+      printf 'reg delete "%s" /v ForceAutoLogon /f\r\n' "$W"
+      printf 'reg delete "%s" /v AutoLogonCount /f\r\n' "$W"
+      printf 'del "%%~f0"\r\n'
+    } > "$MNT/resetpw.cmd"
+    [ -s "$MNT/resetpw.cmd" ] || { say "${c_y}Could not write C:\\resetpw.cmd; using VNC method.${c_0}"; ARMED=0; }
+
     cat > /tmp/win.reg <<REG
 Windows Registry Editor Version 5.00
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon]
 "AutoAdminLogon"="1"
+"ForceAutoLogon"="1"
 "DefaultUserName"="$USER"
 "DefaultPassword"=""
-"ForceAutoLogon"="1"
+"DefaultDomainName"="$CNAME"
+"AutoLogonCount"=dword:00000001
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce]
 "AAResetPwd"="cmd.exe /c \"%SystemDrive%\\resetpw.cmd\""
 REG
-    if hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SOFTWARE' "$SOFTWARE" < /tmp/win.reg 2>/tmp/hive.log; then
-      sync; umount "$MNT" 2>/dev/null || true
-      printf '\n  %sArmed.%s All data intact. Now:\n' "$c_g" "$c_0"
-      printf '   1. Contabo panel: turn OFF Rescue System and reboot into Windows.\n'
-      printf '   2. Wait ~2-3 minutes (it auto-logs in once and sets the password itself).\n'
-      printf '   3. RDP in as %s%s%s with the new password:  %s%s%s\n' "$c_c" "$USER" "$c_0" "$c_c" "$PASSWORD" "$c_0"
-      printf '  No VNC needed. The helper file deletes itself after running.\n'
-      exit 0
+    if [ -s "$MNT/resetpw.cmd" ] && hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SOFTWARE' "$SOFTWARE" < /tmp/win.reg 2>/tmp/hive.log; then
+      # verify the key values actually landed in the hive
+      V=$(hivexget "$SOFTWARE" 'Microsoft\Windows NT\CurrentVersion\Winlogon' AutoAdminLogon 2>/dev/null)
+      R=$(hivexget "$SOFTWARE" 'Microsoft\Windows\CurrentVersion\RunOnce' AAResetPwd 2>/dev/null)
+      if [ "$V" = "1" ] && [ -n "$R" ]; then ARMED=1; else say "${c_y}Verify failed (AutoAdminLogon='$V'); using VNC method.${c_0}"; fi
     else
-      say "${c_y}Could not arm auto set-password (hive write failed); falling back to VNC method.${c_0}"
-      cat /tmp/hive.log 2>/dev/null | sed 's/^/     /'
-      rm -f "$MNT/resetpw.cmd" 2>/dev/null || true
+      say "${c_y}Hive write failed; using VNC method.${c_0}"; sed 's/^/     /' /tmp/hive.log 2>/dev/null
     fi
-  else
-    say "${c_y}SOFTWARE hive not found; falling back to VNC method.${c_0}"
   fi
 elif [ -n "$PASSWORD" ] && [ "$HAVE_HIVEX" = "0" ]; then
-  say "${c_y}'hivexregedit' not available, so auto set-password is off; use the VNC method below.${c_0}"
+  say "${c_y}'hivexregedit' not available; use the VNC method below.${c_0}"
 fi
+
+if [ "$ARMED" = "1" ]; then
+  sync; umount "$MNT" 2>/dev/null || true
+  printf '\n  %sArmed & verified.%s Computer: %s. All data intact. Now:\n' "$c_g" "$c_0" "$CNAME"
+  printf '   1. Contabo panel: turn OFF Rescue System and reboot into Windows.\n'
+  printf '   2. Wait ~2-3 minutes (it auto-logs in once and sets the password itself).\n'
+  printf '   3. RDP in as %s%s%s with:  %s%s%s\n' "$c_c" "$USER" "$c_0" "$c_c" "$PASSWORD" "$c_0"
+  printf '  (If it fails, VNC in and check C:\\resetpw.log to see what happened.)\n'
+  exit 0
+fi
+rm -f "$MNT/resetpw.cmd" 2>/dev/null || true
 
 # --- clear-only fallback: log in blank via VNC, then set a password ---
 sync; umount "$MNT" 2>/dev/null || true
