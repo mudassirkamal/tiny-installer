@@ -13,7 +13,8 @@ param(
   [string]$WallpaperUrl = "",                 # direct link to your JPG/PNG wallpaper
   [string]$CompanyName  = "My Company",
   [string]$TimeZone     = "",                  # leave empty to keep the VPS's own timezone
-  [switch]$InstallChrome                       # optional: bake Google Chrome in
+  [switch]$InstallChrome,                      # optional: bake Google Chrome in
+  [switch]$InstallAgent                        # bake the first-boot agent (random pw + report to panel)
 )
 
 $ErrorActionPreference = "Continue"
@@ -91,12 +92,64 @@ if ($InstallChrome) {
   } catch { Write-Host "   chrome install failed: $_" -ForegroundColor Yellow }
 }
 
+# ------------------------------------------------------------- First-boot agent
+if ($InstallAgent) {
+  Step "Baking in the first-boot agent (random password + report to panel)"
+  $dir = "C:\ti-agent"
+  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  # The agent runs as SYSTEM at every boot; it does nothing unless setup.sh has
+  # written C:\ti-firstboot.json onto the disk (i.e. this is a fresh deploy).
+  $agent = @'
+$cfgPath = "C:\ti-firstboot.json"
+if (-not (Test-Path $cfgPath)) { exit }
+try { $c = Get-Content $cfgPath -Raw | ConvertFrom-Json } catch { exit }
+$user = if ($c.user) { "$($c.user)" } else { "administrator" }
+$port = if ($c.port) { [int]$c.port } else { 22 }
+# generate a strong random password
+$chars = (48..57)+(65..90)+(97..122)
+$pw = -join ($chars | Get-Random -Count 14 | ForEach-Object {[char]$_})
+$pw = $pw + "@9"
+# ensure the account exists, is enabled, and gets the new password
+cmd /c "net user `"$user`" `"$pw`"" | Out-Null
+cmd /c "net user `"$user`" /active:yes" | Out-Null
+cmd /c "net localgroup administrators `"$user`" /add" | Out-Null
+# RDP on + firewall + chosen port
+Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -ErrorAction SilentlyContinue
+Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name PortNumber -Value $port -ErrorAction SilentlyContinue
+cmd /c "netsh advfirewall firewall add rule name=`"TI-RDP-$port`" dir=in action=allow protocol=TCP localport=$port" | Out-Null
+# public IP
+$ip = ""
+foreach ($u in @("https://api.ipify.org","https://ifconfig.me/ip","https://icanhazip.com")) {
+  try { $ip = (Invoke-RestMethod -Uri $u -TimeoutSec 8); if ($ip) { $ip = "$ip".Trim(); break } } catch {}
+}
+# report credentials back to the panel
+$body = @{ ip=$ip; username=$user; password=$pw; port=$port; status="online" } | ConvertTo-Json
+try { Invoke-RestMethod -Uri "$($c.panel)/api/deploy/$($c.token)/report" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 20 } catch {}
+# clean up: remove config, self, and the scheduled task
+Remove-Item $cfgPath -Force -ErrorAction SilentlyContinue
+schtasks /delete /tn "TIFirstBoot" /f | Out-Null
+Start-Sleep -Seconds 2
+Remove-Item "C:\ti-agent" -Recurse -Force -ErrorAction SilentlyContinue
+# apply the new RDP port without a full reboot
+Restart-Service TermService -Force -ErrorAction SilentlyContinue
+'@
+  Set-Content -Path "$dir\firstboot.ps1" -Value $agent -Encoding ASCII
+  # register it to run as SYSTEM at every startup
+  schtasks /create /tn "TIFirstBoot" /tr "powershell -NoProfile -ExecutionPolicy Bypass -File C:\ti-agent\firstboot.ps1" /sc onstart /ru SYSTEM /rl HIGHEST /f | Out-Null
+  Write-Host "   agent baked in (scheduled task TIFirstBoot)." -ForegroundColor Green
+}
+
 # -------------------------------------------------------------- Branding string
 Step "Writing company name into system properties"
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name RegisteredOrganization -Value $CompanyName -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "All set. Company: $CompanyName" -ForegroundColor Green
-Write-Host "Next: set the admin password you want customers to receive, e.g.:" -ForegroundColor Green
-Write-Host "   net user $env:USERNAME YourFixedPass123!" -ForegroundColor White
+if ($InstallAgent) {
+  Write-Host "Agent is baked in - each deployed clone will set its own random password and report to the panel." -ForegroundColor Green
+  Write-Host "Next: zero free space (cipher /w:C:), shut down, boot rescue, and capture the disk (BUILD-FAST-IMAGE.md)." -ForegroundColor Green
+} else {
+  Write-Host "Next: set the admin password you want customers to receive, e.g.:" -ForegroundColor Green
+  Write-Host "   net user $env:USERNAME YourFixedPass123!" -ForegroundColor White
+}
 Write-Host "Then shut down:  shutdown /s /t 0    -  and capture the disk (BUILD-FAST-IMAGE.md)." -ForegroundColor Green

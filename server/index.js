@@ -233,6 +233,24 @@ async function handleApi(req, res, pathname) {
     return send(res, 200, { ok: true });
   }
 
+  // First-boot agent (on a fast/golden-image deploy) reports the credentials it
+  // generated on the machine itself. Token in the path is the credential.
+  const mReport = pathname.match(/^\/api\/deploy\/([\w-]+)\/report$/);
+  if (mReport && method === "POST") {
+    const d = db.deployments.find((x) => x.token === mReport[1]);
+    if (!d) return send(res, 404, { error: "Unknown token." });
+    const { ip, username, password, port, status } = await readBody(req);
+    if (ip) d.serverIp = String(ip).slice(0, 64);
+    if (username) d.config.username = String(username).slice(0, 64);
+    if (password) d.config.password = String(password).slice(0, 128);
+    if (port) d.config.remotePort = Number(port) || d.config.remotePort;
+    d.status = status || "online";
+    d.logs.push({ at: new Date().toISOString(), stage: "done", message: "First-boot agent set the password and reported in — server online." });
+    d.updatedAt = new Date().toISOString();
+    save();
+    return send(res, 200, { ok: true });
+  }
+
   // Public live-status feed for the shareable /d/<token> page (token = credential).
   const mStatus = pathname.match(/^\/api\/status\/([\w-]+)$/);
   if (mStatus && method === "GET") {

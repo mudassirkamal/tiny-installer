@@ -246,9 +246,33 @@ deploy_dd_image() {
   fi
 
   ok "Windows/custom image deployed."
+  inject_firstboot
   print_connect "Remote Desktop (RDP)"
-  report "done" "Image deployed; ready after reboot" "completed"
+  report "done" "Image deployed; first-boot agent will set the password and report back" "running"
   finish_and_reboot
+}
+
+# Write the first-boot config onto the just-dd'd Windows disk so the baked-in
+# agent can set a random password + RDP port and report them to the panel.
+inject_firstboot() {
+  ensure_tools ntfs-3g
+  local mnt=/mnt/tiwin; mkdir -p "$mnt"
+  local part
+  for part in $(lsblk -lnpo NAME,FSTYPE 2>/dev/null | awk '$2 ~ /ntfs/ {print $1}'); do
+    umount "$mnt" 2>/dev/null || true
+    ntfsfix -d "$part" >/dev/null 2>&1 || true
+    if mount -t ntfs-3g -o rw,remove_hiberfile,force "$part" "$mnt" 2>/dev/null; then
+      if find "$mnt" -maxdepth 2 -ipath "*/Windows/System32" -type d 2>/dev/null | grep -q .; then
+        printf '{"panel":"%s","token":"%s","port":%s,"user":"%s"}' \
+          "$API_BASE" "$TOKEN" "${REMOTE_PORT:-22}" "${USERNAME:-administrator}" > "$mnt/ti-firstboot.json"
+        sync; umount "$mnt" 2>/dev/null || true
+        ok "First-boot agent armed (it will set the password + report on first boot)."
+        return 0
+      fi
+      umount "$mnt" 2>/dev/null || true
+    fi
+  done
+  warn "Could not find the Windows partition to arm the first-boot agent."
 }
 
 print_connect() { # print_connect <protocol label>
