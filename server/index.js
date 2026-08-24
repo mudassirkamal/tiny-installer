@@ -266,17 +266,27 @@ async function handleApi(req, res, pathname) {
   // deploy flips to "online" on shared hosting that blocks the panel's outbound
   // RDP probe: the report comes INBOUND over a web port, which is allowed.
   if (pathname === "/api/report-by-ip" && method === "POST") {
-    const { ip, username, password, port } = await readBody(req);
+    const { ip, username, password, port, stage, message, status } = await readBody(req);
     if (!ip) return send(res, 400, { error: "ip required" });
+    // Match the newest in-progress deploy on that IP. Once a deploy is "online"
+    // we still accept follow-up posts on it (agent posts several stages), so
+    // include "online" in the match set.
     const d = db.deployments
-      .filter((x) => x.serverIp === ip && ["running", "installing", "rebooting"].includes(x.status))
+      .filter((x) => x.serverIp === ip && ["running", "installing", "rebooting", "online"].includes(x.status))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
     if (!d) return send(res, 404, { error: "no matching in-progress deployment for that IP" });
     if (username) d.config.username = String(username).slice(0, 64);
     if (password) d.config.password = String(password).slice(0, 128);
     if (port) d.config.remotePort = Number(port) || d.config.remotePort;
-    d.status = "online";
-    d.logs.push({ at: new Date().toISOString(), stage: "done", message: "First-boot agent reported in — server online." });
+    // A staged progress ping keeps status as-is (or a given non-final status);
+    // a final ping (no stage, or explicit online) flips to online.
+    if (message || stage) {
+      d.logs.push({ at: new Date().toISOString(), stage: stage || "install", message: String(message || stage).slice(0, 300) });
+      d.status = status || (d.status === "online" ? "online" : "installing");
+    } else {
+      d.status = status || "online";
+      d.logs.push({ at: new Date().toISOString(), stage: "done", message: "First-boot agent reported in — server online." });
+    }
     d.updatedAt = new Date().toISOString();
     save();
     return send(res, 200, { ok: true, token: d.token });
