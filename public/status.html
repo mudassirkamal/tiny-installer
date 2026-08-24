@@ -181,7 +181,13 @@ async function tick(){
     const c=$("#console"); const atBottom = c.scrollTop+c.clientHeight >= c.scrollHeight-40;
     c.textContent = d.installLog;
     if(atBottom) c.scrollTop = c.scrollHeight;
-  } else $("#liveWrap").style.display = (d.status==="installing") ? "" : "none";
+  } else if(d.status==="installing" || d.status==="rebooting"){
+    $("#liveWrap").style.display="";
+    $("#console").textContent =
+      "Windows is installing on the server in the background.\n"+
+      "This deployment installs headless, so line-by-line internal logs are not streamed here —\n"+
+      "follow the stages and the time estimate above. The server becomes reachable when it finishes.";
+  } else $("#liveWrap").style.display = "none";
 
   // event log
   const ev=$("#events");
