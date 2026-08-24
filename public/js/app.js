@@ -23,6 +23,18 @@ const GF_ICONS = { chrome: "🌐", firefox: "🦊", edge: "🌊", brave: "🦁",
 function showAuth() { $("#auth").classList.remove("hidden"); $("#app").classList.add("hidden"); }
 function showApp() { $("#auth").classList.add("hidden"); $("#app").classList.remove("hidden"); }
 
+// ---------- Header navigation (view switching) ----------
+const VIEWS = ["home", "profiles", "pricing", "docs"];
+function showView(name) {
+  if (!VIEWS.includes(name)) name = "home";
+  VIEWS.forEach((v) => { const el = document.getElementById("view-" + v); if (el) el.classList.toggle("hidden", v !== name); });
+  document.querySelectorAll(".nav-links a").forEach((a) => a.classList.toggle("on", a.dataset.view === name));
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll(".nav-links a").forEach((a) => {
+  a.onclick = (e) => { e.preventDefault(); showView(a.dataset.view); };
+});
+
 $("#authBtn").onclick = async () => {
   const key = $("#authKey").value.trim();
   $("#authErr").textContent = "";
@@ -216,10 +228,11 @@ function applyProfile(cfg) {
   document.querySelectorAll("#getFiles .gf").forEach((el) => el.classList.toggle("on", cfg.getFile && el.dataset.id === cfg.getFile.id));
   $("#getFileUrl").value = (cfg.getFile && cfg.getFile.url) || "";
 }
-$("#profileSelect").addEventListener("change", (e) => {
-  const p = PROFILES.find((x) => x.id === e.target.value);
-  if (p) { applyProfile(p.config); toast(`Loaded “${p.name}”`); }
-});
+$("#loadProfile").onclick = () => {
+  const p = PROFILES.find((x) => x.id === $("#profileSelect").value);
+  if (!p) return toast("Pick a profile first");
+  applyProfile(p.config); showView("home"); toast(`Loaded “${p.name}” into Home`);
+};
 $("#deleteProfile").onclick = async () => {
   const id = $("#profileSelect").value;
   if (!id) return toast("Pick a profile to delete");

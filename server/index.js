@@ -27,37 +27,13 @@ const NODES = [
 //  method "custom"      → user supplies the image/ISO URL at deploy time
 // sizeGb / cost are shown in the UI (cost = usage tokens consumed), matching TinyInstaller.
 const OS_IMAGES = [
-  // ---- Fast pre-built images (dd from R2) ----
-  { id: "ws2022-fast", type: "windows", label: "Windows Server 2022 (Fast ⚡)", method: "dd",
-    imageUrl: "https://pub-bf30ddc50a3f4392932a87f301ed526d.r2.dev/ws2022.img.gz", sizeGb: 75, cost: 1 },
-  // ---- Windows Server ----
-  { id: "ws2022-datacenter-eval", type: "windows", label: "Windows Server 2022 Datacenter Evaluation", method: "reinstall",
+  // Only three Windows Server versions — this is all Fomze Installer deploys.
+  { id: "ws2022-datacenter-eval", type: "windows", label: "Windows Server 2022", method: "reinstall",
     imageName: "Windows Server 2022 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195280", sizeGb: 11, cost: 1 },
-  { id: "ws2022-standard-eval", type: "windows", label: "Windows Server 2022 Standard Evaluation", method: "reinstall",
-    imageName: "Windows Server 2022 SERVERSTANDARD", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195280", sizeGb: 12, cost: 1 },
-  { id: "ws2019-datacenter-eval", type: "windows", label: "Windows Server 2019 Datacenter Evaluation", method: "reinstall",
+  { id: "ws2019-datacenter-eval", type: "windows", label: "Windows Server 2019", method: "reinstall",
     imageName: "Windows Server 2019 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195167", sizeGb: 11, cost: 1 },
-  { id: "ws2016-datacenter-eval", type: "windows", label: "Windows Server 2016 Datacenter Evaluation", method: "reinstall",
+  { id: "ws2016-datacenter-eval", type: "windows", label: "Windows Server 2016", method: "reinstall",
     imageName: "Windows Server 2016 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195174", sizeGb: 12, cost: 1 },
-  { id: "ws2012r2-datacenter", type: "windows", label: "Windows Server 2012 R2 Datacenter", method: "reinstall",
-    imageName: "Windows Server 2012 R2 SERVERDATACENTER", iso: "", sizeGb: 9, cost: 1 },
-  // ---- Windows desktop (LTSC) ----
-  { id: "win10-ltsc-2021", type: "windows", label: "Windows 10 LTSC 2021 Evaluation", method: "reinstall",
-    imageName: "Windows 10 Enterprise LTSC 2021", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195448", sizeGb: 10, cost: 1 },
-  { id: "win10-ltsc-2019", type: "windows", label: "Windows 10 LTSC 2019 Evaluation", method: "reinstall",
-    imageName: "Windows 10 Enterprise LTSC 2019", iso: "", sizeGb: 9, cost: 1 },
-  { id: "win11-pro", type: "windows", label: "Windows 11 Pro", method: "reinstall",
-    imageName: "Windows 11 Pro", iso: "", sizeGb: 12, cost: 1 },
-  // ---- Linux ----
-  { id: "ubuntu-24.04", type: "linux", label: "Ubuntu 24.04 LTS", method: "reinstall", distro: "ubuntu", version: "24.04", sizeGb: 3.5, cost: 1 },
-  { id: "ubuntu-22.04", type: "linux", label: "Ubuntu 22.04 LTS", method: "reinstall", distro: "ubuntu", version: "22.04", sizeGb: 3.5, cost: 1 },
-  { id: "debian-12", type: "linux", label: "Debian 12", method: "reinstall", distro: "debian", version: "12", sizeGb: 3, cost: 1 },
-  { id: "debian-11", type: "linux", label: "Debian 11", method: "reinstall", distro: "debian", version: "11", sizeGb: 3, cost: 1 },
-  { id: "mint-22", type: "linux", label: "Linux Mint 22 Xfce", method: "reinstall", distro: "debian", version: "12", desktop: "xfce", sizeGb: 12, cost: 1 },
-  { id: "alpine-3.20", type: "linux", label: "Alpine 3.20", method: "reinstall", distro: "alpine", version: "3.20", sizeGb: 1, cost: 1 },
-  { id: "rocky-9", type: "linux", label: "Rocky Linux 9", method: "reinstall", distro: "rocky", version: "9", sizeGb: 3, cost: 1 },
-  // ---- Custom ----
-  { id: "custom-image", type: "custom", label: "Custom image (.img / .gz / .zip / .iso direct link)", method: "dd", sizeGb: 0, cost: 1 },
 ];
 
 // "Get File" quick-picks — a browser/tool to install once the box is online.

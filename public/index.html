@@ -32,10 +32,10 @@
     <div class="nav-in">
       <div class="logo"><span class="a">Fomze</span><span class="b">Installer</span></div>
       <div class="nav-links">
-        <a class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
-        <a><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>Deployment Profiles</a>
-        <a><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>Pricing</a>
-        <a><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Documents</a>
+        <a class="on" data-view="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
+        <a data-view="profiles"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>Deployment Profiles</a>
+        <a data-view="pricing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>Pricing</a>
+        <a data-view="docs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Documents</a>
       </div>
       <div class="spacer"></div>
       <button class="icon-ghost" id="themeToggle" title="Theme">
@@ -48,6 +48,7 @@
   </nav>
 
   <div class="wrap">
+    <div id="view-home">
     <div class="greet">
       <h1 id="greetName">Hi</h1>
       <span class="pill" id="accountNo"># —</span>
@@ -146,14 +147,6 @@
           <input type="checkbox" id="preConfirmed" style="width:16px;height:16px;accent-color:var(--brand)"> Pre-confirmed
         </label>
       </div>
-      <div class="inline" style="gap:10px;margin-bottom:14px">
-        <select id="profileSelect" style="max-width:340px"><option value="">Pre-select deployment profile…</option></select>
-        <button class="btn ghost" id="deleteProfile" title="Delete selected profile" style="padding:9px 12px">Delete</button>
-      </div>
-      <div class="cmd-tabs">
-        <button data-os="linux" class="on">Linux</button>
-        <button data-os="windows">Windows</button>
-      </div>
       <div class="cmdbox">
         <code id="cmd">Configure options above, then click “Generate command”.</code>
         <button class="copy" id="copyCmd" title="Copy">
@@ -197,6 +190,51 @@
         <span class="hint" id="trackHint" style="margin:0">Live · refreshes every 4s</span>
       </div>
       <div id="track"><p class="hint">No deployments yet — generate a command above to start one.</p></div>
+    </div>
+    </div><!-- /view-home -->
+
+    <!-- ===== Deployment Profiles view ===== -->
+    <div id="view-profiles" class="hidden">
+      <div class="greet"><h1>Deployment Profiles</h1></div>
+      <div class="panel">
+        <p class="hint" style="margin-top:0">Save the settings you use most (OS version, port, username, browser to install) and load them into the Home form with one click.</p>
+        <div class="row">
+          <div class="lbl">Your profiles</div>
+          <div>
+            <div class="inline" style="gap:10px">
+              <select id="profileSelect" style="max-width:360px"><option value="">Select a saved profile…</option></select>
+              <button class="btn brand" id="loadProfile" style="padding:9px 14px">Load into Home</button>
+              <button class="btn ghost" id="deleteProfile" title="Delete selected profile" style="padding:9px 12px">Delete</button>
+            </div>
+            <div class="hint">Create a profile from the <b>Home</b> tab using “Save as profile”.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Pricing view ===== -->
+    <div id="view-pricing" class="hidden">
+      <div class="greet"><h1>Pricing</h1></div>
+      <div class="panel">
+        <p class="hint" style="margin-top:0">This is your own private panel — there is no billing.</p>
+        <div class="row"><div class="lbl">Your plan</div><div><b style="font-size:18px">Owner · Unlimited</b><div class="hint">Unlimited deployments, no expiry, no per-deploy charge.</div></div></div>
+        <div class="row"><div class="lbl">Deployable systems</div><div>Windows Server 2022, 2019, 2016<div class="hint">~15–20 min per install over the reinstall engine.</div></div></div>
+      </div>
+    </div>
+
+    <!-- ===== Documents view ===== -->
+    <div id="view-docs" class="hidden">
+      <div class="greet"><h1>Documents</h1></div>
+      <div class="panel">
+        <p class="hint" style="margin-top:0">How to deploy Windows onto a Linux VPS with Fomze Installer.</p>
+        <ol style="line-height:1.9;padding-left:20px;color:var(--muted)">
+          <li>On the <b>Home</b> tab pick a Windows version, set a port/username/password (or leave random), and click <b>Generate command</b>.</li>
+          <li>Copy the command and run it over SSH on your fresh <b>Linux</b> VPS (as root).</li>
+          <li>Watch progress on the <b>Live status</b> link — it shows the stages and a time-remaining estimate.</li>
+          <li>When it turns <b>Online</b>, connect over RDP to the IP:port with the username and password shown.</li>
+        </ol>
+        <p class="notice"><span>ⓘ</span> The command runs on your Linux VPS and reinstalls it as Windows — the disk is wiped, so only run it on a server you intend to convert.</p>
+      </div>
     </div>
   </div>
 
