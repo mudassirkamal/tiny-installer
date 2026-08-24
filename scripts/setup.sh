@@ -221,14 +221,14 @@ deploy_reinstall_linux() {
 deploy_reinstall_windows() {
   [ -n "$IMAGE_NAME" ] || die "No Windows edition (image name) configured for this image."
   fetch_engine
-  # Point the engine's config base at our panel. Our panel serves a modified
-  # windows-resize.bat (which triggers first-boot branding + optimization + the
-  # live feed) and transparently proxies every other config file to upstream.
-  # Result: every Windows deploy is auto-branded with NO golden image and NO
-  # manual step. If this sed no-ops (upstream changed the line) it safely falls
-  # back to the stock engine — the deploy still works, just unbranded.
-  sed -i "s|^confhome=https://raw.githubusercontent.com/bin456789/reinstall/main|confhome=$API_BASE/reinstall-conf|" /tmp/reinstall.sh 2>/dev/null || true
-  info "Branding hook: confhome -> $API_BASE/reinstall-conf"
+  # NOTE: auto-branding via a confhome reroute is DISABLED — rerouting the
+  # engine's config base destabilised the RAM-installer staging (the install
+  # fell back to the old OS). Kept here, off, until a safer hook is proven.
+  # To (re)enable branding, set BRAND_HOOK=1 in the runner config.
+  if [ "${BRAND_HOOK:-0}" = "1" ]; then
+    sed -i "s|^confhome=https://raw.githubusercontent.com/bin456789/reinstall/main|confhome=$API_BASE/reinstall-conf|" /tmp/reinstall.sh 2>/dev/null || true
+    info "Branding hook: confhome -> $API_BASE/reinstall-conf"
+  fi
   report "reinstall" "Installing Windows: $IMAGE_NAME" "running"
   local args=(windows --image-name "$IMAGE_NAME" --password "$PASSWORD" --rdp-port "$REMOTE_PORT")
   [ -n "$ISO_URL" ]  && args+=(--iso "$ISO_URL")
