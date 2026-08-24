@@ -214,65 +214,27 @@ deploy_reinstall_windows() {
 }
 
 # ===========================================================================
-#  PATH B — Windows / custom raw image, written with dd
+#  PATH B — Pre-built (golden) image, written SAFELY via the reinstall engine.
+#  The engine boots into a RAM environment first, then writes the image and
+#  auto-extends the partition. This is safe (never overwrites the running disk),
+#  terminal-independent (you can close the terminal), and works on any disk size.
 # ===========================================================================
 deploy_dd_image() {
-  [ -n "$IMAGE_URL" ] || die "This image requires a direct .img/.gz/.zip/.iso URL (none provided)."
-  ensure_tools curl gzip
-  info "Streaming image to $DISK (this can take a while)…"
-  report "download" "Writing image to $DISK" "running"
-
-  # Choose a decompressor based on the URL/extension and stream straight to dd.
-  case "$IMAGE_URL" in
-    *.gz)        curl -fL "$IMAGE_URL" | gunzip -c | dd of="$DISK" bs=4M conv=fsync status=progress ;;
-    *.xz)        ensure_tools xz; curl -fL "$IMAGE_URL" | xz -dc | dd of="$DISK" bs=4M conv=fsync status=progress ;;
-    *.zip)       ensure_tools funzip; curl -fL "$IMAGE_URL" | funzip | dd of="$DISK" bs=4M conv=fsync status=progress ;;
-    *.img|*.iso|*.raw) curl -fL "$IMAGE_URL" | dd of="$DISK" bs=4M conv=fsync status=progress ;;
-    *)           curl -fL "$IMAGE_URL" | dd of="$DISK" bs=4M conv=fsync status=progress ;;
-  esac || die "Image write failed."
-  sync
-  ok "Image written to $DISK."
-
-  if [ "$CONVERT_GPT" = "1" ]; then
-    info "Ensuring GPT partition table on UEFI…"
-    have sgdisk && sgdisk -g "$DISK" >/dev/null 2>&1 || warn "sgdisk not available; skipped MBR→GPT."
-  fi
-  if [ "$INSTALL_GRUB" = "1" ]; then
-    info "Installing GRUB as primary bootloader…"
-    ensure_tools grub2-install
-    if have grub-install; then grub-install "$DISK" >/dev/null 2>&1 || warn "grub-install returned non-zero."
-    elif have grub2-install; then grub2-install "$DISK" >/dev/null 2>&1 || warn "grub2-install returned non-zero."
-    else warn "GRUB not found; relying on image's own bootloader."; fi
-  fi
-
-  ok "Windows/custom image deployed."
-  inject_firstboot
+  [ -n "$IMAGE_URL" ] || die "This fast image needs a direct image URL (none configured)."
+  fetch_engine
+  # Register this deployment's public IP so the first-boot agent (which reports
+  # by IP, since we can't inject a token through a RAM-boot deploy) is matched
+  # back to this token.
+  [ -n "$PUBLIC_IP" ] && report_ip "$PUBLIC_IP"
+  report "download" "Writing pre-built image via the reinstall engine (safe RAM boot)" "running"
+  info "Deploying image with the reinstall engine — it boots into RAM first, then writes + auto-extends."
+  info "Invoking: reinstall.sh dd --img \"$IMAGE_URL\""
+  bash /tmp/reinstall.sh dd --img "$IMAGE_URL" || die "Reinstall engine (dd mode) reported an error."
+  ok "Image deployment staged. The server will reboot into the installer and write your image."
+  info "${c_grn}This now runs on the server itself — you can safely close this terminal and watch the status page.${c_rst}"
   print_connect "Remote Desktop (RDP)"
-  report "done" "Image deployed; first-boot agent will set the password and report back" "running"
+  report "reboot" "Rebooting into installer to write the image" "running"
   finish_and_reboot
-}
-
-# Write the first-boot config onto the just-dd'd Windows disk so the baked-in
-# agent can set a random password + RDP port and report them to the panel.
-inject_firstboot() {
-  ensure_tools ntfs-3g
-  local mnt=/mnt/tiwin; mkdir -p "$mnt"
-  local part
-  for part in $(lsblk -lnpo NAME,FSTYPE 2>/dev/null | awk '$2 ~ /ntfs/ {print $1}'); do
-    umount "$mnt" 2>/dev/null || true
-    ntfsfix -d "$part" >/dev/null 2>&1 || true
-    if mount -t ntfs-3g -o rw,remove_hiberfile,force "$part" "$mnt" 2>/dev/null; then
-      if find "$mnt" -maxdepth 2 -ipath "*/Windows/System32" -type d 2>/dev/null | grep -q .; then
-        printf '{"panel":"%s","token":"%s","port":%s,"user":"%s"}' \
-          "$API_BASE" "$TOKEN" "${REMOTE_PORT:-22}" "${USERNAME:-administrator}" > "$mnt/ti-firstboot.json"
-        sync; umount "$mnt" 2>/dev/null || true
-        ok "First-boot agent armed (it will set the password + report on first boot)."
-        return 0
-      fi
-      umount "$mnt" 2>/dev/null || true
-    fi
-  done
-  warn "Could not find the Windows partition to arm the first-boot agent."
 }
 
 print_connect() { # print_connect <protocol label>
