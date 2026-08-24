@@ -27,6 +27,9 @@ const NODES = [
 //  method "custom"      → user supplies the image/ISO URL at deploy time
 // sizeGb / cost are shown in the UI (cost = usage tokens consumed), matching TinyInstaller.
 const OS_IMAGES = [
+  // ---- Fast pre-built images (dd from R2) ----
+  { id: "ws2022-fast", type: "windows", label: "Windows Server 2022 (Fast ⚡)", method: "dd",
+    imageUrl: "https://pub-bf30ddc50a3f4392932a87f301ed526d.r2.dev/ws2022.img.gz", sizeGb: 75, cost: 1 },
   // ---- Windows Server ----
   { id: "ws2022-datacenter-eval", type: "windows", label: "Windows Server 2022 Datacenter Evaluation", method: "reinstall",
     imageName: "Windows Server 2022 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195280", sizeGb: 11, cost: 1 },
