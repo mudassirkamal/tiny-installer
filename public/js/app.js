@@ -274,6 +274,7 @@ async function renderDeployments() {
       <div class="dep-top">
         <span class="os">${esc(osLabel(c.osImage))}</span>
         <span class="tok">${d.token.slice(0, 8)}…</span>
+        <a class="sharelink" href="/d/${d.token}" target="_blank" title="Open shareable live status page">🔗 Live status</a>
         <div class="spacer"></div>
         <span class="st ${d.status}"><span class="dot"></span>${d.status}</span>
       </div>

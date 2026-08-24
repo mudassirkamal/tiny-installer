@@ -221,6 +221,29 @@ async function handleApi(req, res, pathname) {
     return send(res, 200, { ok: true });
   }
 
+  // Public live-status feed for the shareable /d/<token> page (token = credential).
+  const mStatus = pathname.match(/^\/api\/status\/([\w-]+)$/);
+  if (mStatus && method === "GET") {
+    const d = db.deployments.find((x) => x.token === mStatus[1]);
+    if (!d) return send(res, 404, { error: "Unknown token." });
+    const meta = OS_IMAGES.find((o) => o.id === d.config.osImage) || {};
+    return send(res, 200, {
+      token: d.token,
+      status: d.status,
+      osLabel: meta.label || d.config.osImage,
+      osType: meta.type || "linux",
+      serverIp: d.serverIp || null,
+      port: d.config.remotePort,
+      username: d.config.username,
+      password: d.config.password,
+      logs: d.logs,
+      installLog: d.installLog || "",
+      postInstall: buildPostInstall(d),
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt,
+    });
+  }
+
   // ---- Everything below requires a signed-in user ----
   const user = currentUser(req);
   if (pathname.startsWith("/api/") && !user)
@@ -424,6 +447,11 @@ const server = http.createServer(async (req, res) => {
   try {
     if (pathname === "/setup.sh" || pathname.startsWith("/api/"))
       return await handleApi(req, res, pathname);
+    // Shareable public live-status page: /d/<token>
+    if (/^\/d\/[\w-]+$/.test(pathname)) {
+      return fs.readFile(path.join(PUB, "status.html"), (e, buf) =>
+        e ? send(res, 404, { error: "not found" }) : send(res, 200, buf, { "Content-Type": "text/html" }));
+    }
     return serveStatic(req, res, pathname);
   } catch (e) {
     console.error(e);
@@ -446,23 +474,52 @@ function tcpOpen(host, port, timeout = 4000) {
     sock.connect(port, host);
   });
 }
+// Fetch the reinstall engine's live install-log web page (served on port 80
+// of the target while it is installing). Returns cleaned text, or null.
+function httpGetText(host, port, path = "/", timeout = 6000) {
+  return new Promise((resolve) => {
+    let data = "";
+    const req = http.get({ host, port, path, timeout }, (res) => {
+      res.setEncoding("utf8");
+      res.on("data", (c) => { data += c; if (data.length > 60000) req.destroy(); });
+      res.on("end", () => resolve(data));
+    });
+    req.on("timeout", () => { req.destroy(); resolve(null); });
+    req.on("error", () => resolve(null));
+  });
+}
 async function probeDeployments() {
   const targets = db.deployments.filter(
-    (d) => d.serverIp && ["running", "rebooting"].includes(d.status)
+    (d) => d.serverIp && ["running", "rebooting", "installing"].includes(d.status)
   );
   for (const d of targets) {
     const port = d.config && d.config.remotePort;
-    if (!port) continue;
-    const up = await tcpOpen(d.serverIp, port);
-    if (up) {
+    // 1. Final state: the remote/RDP port is open → the OS is up.
+    if (port && (await tcpOpen(d.serverIp, port))) {
       d.status = "online";
       d.updatedAt = new Date().toISOString();
       d.logs.push({ at: new Date().toISOString(), stage: "done", message: `Port ${port} is open — the server is online.` });
       save();
+      continue;
+    }
+    // 2. Mid-install: relay the engine's live log page (port 80) into the panel.
+    const page = await httpGetText(d.serverIp, 80, "/");
+    if (page) {
+      const text = page.replace(/<[^>]+>/g, " ").replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
+      const tail = text.slice(-6000);
+      if (tail && tail !== d.installLog) {
+        d.installLog = tail;
+        if (d.status !== "installing") {
+          d.status = "installing";
+          d.logs.push({ at: new Date().toISOString(), stage: "reinstall", message: "Installing OS — live logs streaming from the target." });
+        }
+        d.updatedAt = new Date().toISOString();
+        save();
+      }
     }
   }
 }
-setInterval(() => { probeDeployments().catch(() => {}); }, 20000);
+setInterval(() => { probeDeployments().catch(() => {}); }, 15000);
 
 server.listen(PORT, () => {
   console.log(`\n  TinyInstaller Panel running →  http://localhost:${PORT}\n`);
