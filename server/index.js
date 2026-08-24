@@ -593,15 +593,21 @@ const server = http.createServer(async (req, res) => {
 // ---- Live reachability prober --------------------------------------------
 // For deployments that have rebooted into install, TCP-probe IP:remotePort.
 // When the port answers, the OS is really up → mark "online".
-function tcpOpen(host, port, timeout = 4000) {
+// Probe a port AND sniff whether it speaks SSH. This matters because the
+// reinstall engine keeps an SSH server on port 22 for the WHOLE install (to view
+// logs), so "port 22 is open" is true the entire time — it does NOT mean Windows
+// is up. SSH sends a banner immediately on connect; RDP (Windows) does not.
+//   returns { open: bool, ssh: bool }
+function probePort(host, port, timeout = 4000) {
   return new Promise((resolve) => {
     const sock = new net.Socket();
-    let done = false;
-    const finish = (ok) => { if (done) return; done = true; sock.destroy(); resolve(ok); };
+    let done = false, connected = false, banner = "";
+    const finish = (r) => { if (done) return; done = true; sock.destroy(); resolve(r); };
     sock.setTimeout(timeout);
-    sock.once("connect", () => finish(true));
-    sock.once("timeout", () => finish(false));
-    sock.once("error", () => finish(false));
+    sock.once("connect", () => { connected = true; sock.setTimeout(1500); });   // wait briefly for a banner
+    sock.on("data", (chunk) => { banner += chunk.toString("latin1", 0, 8); finish({ open: true, ssh: banner.startsWith("SSH-") }); });
+    sock.once("timeout", () => finish(connected ? { open: true, ssh: false } : { open: false }));
+    sock.once("error", () => finish({ open: false }));
     sock.connect(port, host);
   });
 }
@@ -624,16 +630,36 @@ function httpGetText(host, port, path = "/", timeout = 6000) {
 // on-demand from /api/status (so it also works on shared hosting that freezes
 // background jobs, as long as it allows the panel to make outbound calls).
 async function probeOne(d, { fast = false } = {}) {
-  if (!d || !d.serverIp || !["running", "rebooting", "installing"].includes(d.status)) return;
+  // "online" is included so a premature/false online can self-correct back to
+  // installing if the port turns out to still be the SSH installer.
+  if (!d || !d.serverIp || !["running", "rebooting", "installing", "online"].includes(d.status)) return;
   const t1 = fast ? 2500 : 4000, t2 = fast ? 3000 : 6000;
   const port = d.config && d.config.remotePort;
-  if (port && (await tcpOpen(d.serverIp, port, t1))) {
-    d.status = "online";
-    d.updatedAt = new Date().toISOString();
-    d.logs.push({ at: new Date().toISOString(), stage: "done", message: `Port ${port} is open — the server is online.` });
-    save();
-    return;
+  if (port) {
+    const r = await probePort(d.serverIp, port, t1);
+    if (r.open && !r.ssh) {
+      // A non-SSH service is answering (Windows RDP) → genuinely online.
+      if (d.status !== "online") {
+        d.status = "online";
+        d.updatedAt = new Date().toISOString();
+        d.logs.push({ at: new Date().toISOString(), stage: "done", message: `Port ${port} is open (RDP) — the server is online.` });
+        save();
+      }
+      return;
+    }
+    if (r.open && r.ssh) {
+      // SSH is answering → still Linux / the reinstall installer, NOT finished
+      // Windows. Ensure we show "installing" (correct any premature online).
+      if (d.status === "online" || d.status === "running") {
+        d.status = "installing";
+        d.updatedAt = new Date().toISOString();
+        d.logs.push({ at: new Date().toISOString(), stage: "reinstall", message: "Windows is still installing (the installer is up, not the finished OS)." });
+        save();
+      }
+    }
+    // r.open === false → server is mid-reboot; leave status as-is (don't flap).
   }
+  if (d.status === "online") return;
   const page = await httpGetText(d.serverIp, 80, "/", t2);
   if (page) {
     const text = page
