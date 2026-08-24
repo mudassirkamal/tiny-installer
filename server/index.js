@@ -553,9 +553,14 @@ async function probeOne(d, { fast = false } = {}) {
   }
   const page = await httpGetText(d.serverIp, 80, "/", t2);
   if (page) {
-    const text = page.replace(/<[^>]+>/g, " ").replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
+    const text = page
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")   // drop the page's own JS
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
     const tail = text.slice(-6000);
-    if (tail && tail !== d.installLog) {
+    // Ignore pages that are just the log viewer's boilerplate (no real log lines yet).
+    if (tail && tail.length > 20 && tail !== d.installLog) {
       d.installLog = tail;
       if (d.status !== "installing") {
         d.status = "installing";
