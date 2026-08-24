@@ -117,11 +117,11 @@
         <div><input id="password" type="text" placeholder="Set initial password or leave empty for random"></div>
       </div>
       <div class="row">
-        <div class="lbl">Get File</div>
+        <div class="lbl">Pre-install browser <span class="sub">optional</span></div>
         <div>
           <div class="getfile" id="getFiles"></div>
-          <input id="getFileUrl" type="text" placeholder="Direct link to the file you want to get" style="margin-top:14px">
-          <div class="hint">Max 100 MB · Direct links only · .zip and .iso supported</div>
+          <div class="hint">Pick a browser to be installed automatically once Windows is online. Leave unselected for none.</div>
+          <input id="getFileUrl" type="text" placeholder="…or paste a direct .exe link to install instead" style="margin-top:14px">
         </div>
       </div>
       <div class="row">
@@ -133,7 +133,10 @@
       </div>
       <div class="row">
         <div class="lbl">Private tracking</div>
-        <div><span class="tgl"><input type="checkbox" id="privateTracking" checked><label for="privateTracking"></label></span></div>
+        <div>
+          <span class="tgl"><input type="checkbox" id="privateTracking" checked><label for="privateTracking"></label></span>
+          <div class="hint">ON: only you (signed in) can open the live status link. OFF: anyone with the link can view it.</div>
+        </div>
       </div>
     </div>
 
@@ -142,7 +145,7 @@
     <!-- command -->
     <div style="margin-top:26px">
       <div class="inline" style="justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:12px">
-        <h3 style="font-size:16px;font-weight:700">Use the following command to start the deployment process.</h3>
+        <h3 style="font-size:16px;font-weight:700">Copy this command and run it on your VPS to start the deployment.</h3>
         <label class="inline" style="gap:8px;color:var(--muted);font-size:13px">
           <input type="checkbox" id="preConfirmed" style="width:16px;height:16px;accent-color:var(--brand)"> Pre-confirmed
         </label>
@@ -154,7 +157,6 @@
         </button>
       </div>
       <div class="inline" style="margin-top:16px;gap:12px">
-        <button class="btn brand" id="genBtn">Generate command</button>
         <button class="btn ghost" id="saveProfile">Save as profile</button>
       </div>
     </div>

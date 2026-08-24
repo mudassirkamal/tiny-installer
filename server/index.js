@@ -315,6 +315,12 @@ async function handleApi(req, res, pathname) {
   if (mStatus && method === "GET") {
     const d = db.deployments.find((x) => x.token === mStatus[1]);
     if (!d) return send(res, 404, { error: "Unknown token." });
+    // Private tracking: only the owner (signed in) may view. Public when off.
+    if (d.config.privateTracking) {
+      const u = currentUser(req);
+      if (!u || u.id !== d.userId)
+        return send(res, 403, { error: "This deployment is private — sign in as the owner to view it." });
+    }
     // Refresh live status on-demand (works even where background jobs are frozen).
     await probeOne(d, { fast: true }).catch(() => {});
     const meta = OS_IMAGES.find((o) => o.id === d.config.osImage) || {};
@@ -365,6 +371,16 @@ async function handleApi(req, res, pathname) {
     d.updatedAt = new Date().toISOString();
     save();
     return send(res, 200, { token: d.token, command: buildCommand(req, d) });
+  }
+
+  // Delete a deployment card (owner only).
+  const mDel = pathname.match(/^\/api\/deployments\/([\w-]+)$/);
+  if (mDel && method === "DELETE") {
+    const before = db.deployments.length;
+    db.deployments = db.deployments.filter((x) => !(x.token === mDel[1] && x.userId === user.id));
+    if (db.deployments.length === before) return send(res, 404, { error: "Deployment not found." });
+    save();
+    return send(res, 200, { ok: true });
   }
 
   if (pathname === "/api/deployments" && method === "GET") {
@@ -429,19 +445,26 @@ function createDeployment(req, res, user, cfg) {
       return send(res, 429, { error: `Concurrent deployment limit reached (${user.maxProcesses}). Wait for one to finish.` });
   }
 
-  const d = {
-    token: U.uuid(),
-    userId: user.id,
-    config,
-    cost,
-    status: "ready",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    logs: [],
-  };
-  // Charge tokens on creation (owner account is unlimited — never charged).
-  if (!user.unlimited) user.usageLeft -= cost;
-  db.deployments.push(d);
+  // Reuse the current standing command (a "ready" deploy not yet run on any
+  // server) so editing options doesn't spawn duplicate cards. A new record is
+  // only created once the previous command has actually been used on a server.
+  let d = db.deployments.find((x) => x.userId === user.id && x.status === "ready" && !x.serverIp);
+  if (d) {
+    d.config = config;
+    d.updatedAt = new Date().toISOString();
+  } else {
+    d = {
+      token: U.uuid(),
+      userId: user.id,
+      config,
+      cost,
+      status: "ready",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      logs: [],
+    };
+    db.deployments.push(d);
+  }
   save();
   return send(res, 200, {
     token: d.token,
@@ -503,6 +526,7 @@ function buildRunnerConfig(d) {
     password: c.password,
     mode: c.advanced.mode,
     force: c.advanced.force,
+    pre_confirmed: c.preConfirmed,
     install_grub: c.advanced.installGrub,
     rescue_env: c.advanced.rescueEnv,
     convert_gpt: c.advanced.convertGpt,

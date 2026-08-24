@@ -95,6 +95,7 @@ USERNAME=$(jget "$CFG" username)
 PASSWORD=$(jget "$CFG" password)
 MODE=$(jget "$CFG" mode)
 FORCE=$(jbool "$CFG" force)
+PRE_CONFIRMED=$(jbool "$CFG" pre_confirmed)
 INSTALL_GRUB=$(jbool "$CFG" install_grub)
 RESCUE_ENV=$(jbool "$CFG" rescue_env)
 CONVERT_GPT=$(jbool "$CFG" convert_gpt)
@@ -132,18 +133,26 @@ DISK=$(detect_disk)
 warn "Target disk: ${c_red}$DISK${c_rst} — ALL DATA ON IT WILL BE ERASED."
 
 # --- confirmation -----------------------------------------------------------
-if [ "$FORCE" != "1" ]; then
+if [ "$FORCE" != "1" ] && [ "$PRE_CONFIRMED" != "1" ]; then
   say ""
   warn "This will irreversibly wipe $DISK and reinstall the OS."
   printf "  Type ${c_red}%s${c_rst} to proceed: " "$SELF_CONFIRM_WORD"
   read -r ANS
-  [ "$ANS" = "$SELF_CONFIRM_WORD" ] || die "Aborted by operator."
+  # accept the confirm word in any case (REINSTALL / reinstall)
+  ANS_UP=$(printf '%s' "$ANS" | tr '[:lower:]' '[:upper:]')
+  [ "$ANS_UP" = "$SELF_CONFIRM_WORD" ] || die "Aborted by operator."
+elif [ "$PRE_CONFIRMED" = "1" ]; then
+  warn "Pre-confirmed: starting the deployment without asking."
 else
   warn "Force mode: skipping confirmation and port checks."
 fi
 
 report "start" "Deployment started for $OS_IMAGE on $DISK" "running"
 ok "Starting deployment…"
+say ""
+say "  ${c_grn}Live status page:${c_rst} $API_BASE/d/$TOKEN"
+say "  (open it in your browser — close this terminal any time)"
+say ""
 
 # --- dependency check -------------------------------------------------------
 ensure_tools() {
@@ -231,7 +240,8 @@ deploy_dd_image() {
   info "Invoking: reinstall.sh dd --img \"$IMAGE_URL\""
   bash /tmp/reinstall.sh dd --img "$IMAGE_URL" || die "Reinstall engine (dd mode) reported an error."
   ok "Image deployment staged. The server will reboot into the installer and write your image."
-  info "${c_grn}This now runs on the server itself — you can safely close this terminal and watch the status page.${c_rst}"
+  info "${c_grn}This now runs on the server itself — you can safely close this terminal and watch the status page:${c_rst}"
+  info "${c_grn}  $API_BASE/d/$TOKEN${c_rst}"
   print_connect "Remote Desktop (RDP)"
   report "reboot" "Rebooting into installer to write the image" "running"
   finish_and_reboot

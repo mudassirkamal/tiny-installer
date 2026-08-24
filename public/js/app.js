@@ -54,6 +54,7 @@ async function boot() {
   renderAccount();
   await loadProfiles();
   showApp();
+  await syncCommand(false);   // command is ready immediately, no button needed
   startPolling();
 }
 function renderReference() {
@@ -72,7 +73,12 @@ function renderReference() {
     const el = document.createElement("div");
     el.className = "gf"; el.dataset.id = f.id; el.title = f.label;
     el.innerHTML = `<span class="ic">${GF_ICONS[f.id] || "📦"}</span>`;
-    el.onclick = () => { el.classList.toggle("on"); };
+    el.onclick = () => {
+      const was = el.classList.contains("on");
+      gf.querySelectorAll(".gf").forEach((x) => x.classList.remove("on")); // single-select
+      if (!was) el.classList.add("on");
+      scheduleSync();
+    };
     gf.appendChild(el);
   });
   updateOsHint();
@@ -150,21 +156,28 @@ function collectConfig() {
 }
 
 // ---------- Command ----------
-$("#genBtn").onclick = async () => {
+// The command is always ready (no "Generate" button). It reflects the options
+// above and is persisted server-side against a standing token, so you just copy
+// and run it. Editing options re-syncs it (debounced) without spawning cards.
+let syncTimer = null;
+async function syncCommand(showToast) {
   try {
     const res = await api("/api/deploy", { method: "POST", body: collectConfig() });
     currentToken = res.token;
     currentCommand = res.command;
     renderCommand();
-    // reflect assigned values
-    $("#remotePort").value = res.config.remotePort;
-    if (!$("#userRandom").checked && !$("#username").value) $("#username").value = res.config.username;
-    if (!$("#password").value) $("#password").value = res.config.password;
-    toast("Deployment command generated");
-    ME = (await api("/api/me")).user; renderAccount();
+    if (res.config) {
+      $("#remotePort").value = res.config.remotePort;
+      if (!$("#userRandom").checked) $("#username").value = res.config.username;
+      $("#password").value = res.config.password;
+    }
+    if (showToast) toast("Command updated");
     renderDeployments();
-  } catch (e) { toast(e.message); }
-};
+  } catch (e) { if (showToast) toast(e.message); }
+}
+function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncCommand(false), 600); }
+["osImage", "imageUrl", "remotePort", "username", "userRandom", "password", "node", "privateTracking", "preConfirmed", "getFileUrl"]
+  .forEach((id) => { const el = $("#" + id); if (el) el.addEventListener("change", scheduleSync); });
 
 function renderCommand() {
   if (!currentCommand) return;
@@ -227,6 +240,7 @@ function applyProfile(cfg) {
   // get-file chip
   document.querySelectorAll("#getFiles .gf").forEach((el) => el.classList.toggle("on", cfg.getFile && el.dataset.id === cfg.getFile.id));
   $("#getFileUrl").value = (cfg.getFile && cfg.getFile.url) || "";
+  scheduleSync();
 }
 $("#loadProfile").onclick = () => {
   const p = PROFILES.find((x) => x.id === $("#profileSelect").value);
@@ -267,8 +281,10 @@ function osLabel(id) { const o = REF.osImages.find((x) => x.id === id); return o
 async function renderDeployments() {
   let list = [];
   try { list = (await api("/api/deployments")).deployments; } catch { return; }
+  // Hide the standing command itself (a "ready" deploy that no server has run yet).
+  list = list.filter((d) => !(d.status === "ready" && !d.serverIp && (!d.logs || !d.logs.length)));
   const track = $("#track");
-  if (!list.length) { track.innerHTML = `<p class="hint">No deployments yet — generate a command above to start one.</p>`; return; }
+  if (!list.length) { track.innerHTML = `<p class="hint">No deployments yet — copy the command above and run it on your VPS.</p>`; return; }
   track.innerHTML = list.map((d) => {
     const c = d.config;
     const done = d.status === "completed" || d.status === "online";
@@ -285,6 +301,7 @@ async function renderDeployments() {
         <a class="sharelink" href="/d/${d.token}" target="_blank" title="Open shareable live status page">🔗 Live status</a>
         <div class="spacer"></div>
         <span class="st ${d.status}"><span class="dot"></span>${d.status}</span>
+        <button class="dep-del" data-del="${d.token}" title="Delete this deployment" style="background:none;border:0;color:var(--faint);cursor:pointer;font-size:16px;padding:2px 6px;margin-left:8px">✕</button>
       </div>
       <div class="conn">
         <div class="kv"><div class="k">Server IP</div><div class="v">${ip ? esc(ip) + cp(ip) : '<span class="hint" style="margin:0">pending…</span>'}</div></div>
@@ -305,6 +322,13 @@ async function renderDeployments() {
   });
   track.querySelectorAll(".pi-copy").forEach((el) => {
     el.onclick = async () => { try { await navigator.clipboard.writeText(decodeURIComponent(el.dataset.cmd)); toast("Post-install command copied"); } catch {} };
+  });
+  track.querySelectorAll(".dep-del").forEach((el) => {
+    el.onclick = async () => {
+      if (!confirm("Delete this deployment card? (It does not touch the server.)")) return;
+      try { await api(`/api/deployments/${el.dataset.del}`, { method: "DELETE" }); toast("Deployment deleted"); renderDeployments(); }
+      catch (e) { toast(e.message); }
+    };
   });
 }
 let pollTimer = null;
