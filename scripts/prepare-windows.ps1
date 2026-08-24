@@ -14,7 +14,8 @@ param(
   [string]$CompanyName  = "My Company",
   [string]$TimeZone     = "",                  # leave empty to keep the VPS's own timezone
   [switch]$InstallChrome,                      # optional: bake Google Chrome in
-  [switch]$InstallAgent                        # bake the first-boot agent (random pw + report to panel)
+  [switch]$InstallAgent,                       # bake the first-boot agent (random pw + report to panel)
+  [string]$PanelUrl = "https://bellonus.com"   # where the agent reports credentials back to
 )
 
 $ErrorActionPreference = "Continue"
@@ -102,42 +103,45 @@ if ($InstallAgent) {
   Step "Baking in the first-boot agent (random password + report to panel)"
   $dir = "C:\ti-agent"
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
-  # The agent runs as SYSTEM at every boot; it does nothing unless setup.sh has
-  # written C:\ti-firstboot.json onto the disk (i.e. this is a fresh deploy).
+  # The agent runs as SYSTEM at boot. It runs ONCE per clone (a flag file gates
+  # it) and reports credentials back to the panel BY IP (no per-deploy token, so
+  # it works after a RAM-boot dd deploy). It also auto-extends C: to any disk.
+  # IMPORTANT: do NOT reboot this builder box after prepare — shut down and
+  # capture from rescue, so the agent never runs here (only on deployed clones).
   $agent = @'
-$cfgPath = "C:\ti-firstboot.json"
-if (-not (Test-Path $cfgPath)) { exit }
-try { $c = Get-Content $cfgPath -Raw | ConvertFrom-Json } catch { exit }
-$user = if ($c.user) { "$($c.user)" } else { "administrator" }
-$port = if ($c.port) { [int]$c.port } else { 22 }
-# generate a strong random password
+$flag = "C:\ti-agent\done.flag"
+if (Test-Path $flag) { exit }
+New-Item -ItemType File -Force -Path $flag | Out-Null   # run exactly once per clone
+$panel = "__PANEL_URL__"
+$user  = "administrator"
+$port  = 22
+# wait for network (up to ~60s)
+for ($i=0; $i -lt 30; $i++) { if (Test-Connection -Count 1 -Quiet -ComputerName 8.8.8.8) { break }; Start-Sleep 2 }
+# auto-extend C: to fill whatever disk this clone landed on
+try { $m = (Get-PartitionSupportedSize -DriveLetter C).SizeMax; Resize-Partition -DriveLetter C -Size $m -ErrorAction SilentlyContinue } catch {}
+try { "select volume C`r`nextend" | diskpart | Out-Null } catch {}
+# random password for administrator
 $chars = (48..57)+(65..90)+(97..122)
-$pw = -join ($chars | Get-Random -Count 14 | ForEach-Object {[char]$_})
-$pw = $pw + "@9"
-# ensure the account exists, is enabled, and gets the new password
+$pw = (-join ($chars | Get-Random -Count 14 | ForEach-Object {[char]$_})) + "@9"
 cmd /c "net user `"$user`" `"$pw`"" | Out-Null
 cmd /c "net user `"$user`" /active:yes" | Out-Null
-cmd /c "net localgroup administrators `"$user`" /add" | Out-Null
-# RDP on + firewall + chosen port
+# RDP on + firewall + port
 Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -ErrorAction SilentlyContinue
 Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name PortNumber -Value $port -ErrorAction SilentlyContinue
-cmd /c "netsh advfirewall firewall add rule name=`"TI-RDP-$port`" dir=in action=allow protocol=TCP localport=$port" | Out-Null
+cmd /c "netsh advfirewall firewall add rule name=`"TI-RDP`" dir=in action=allow protocol=TCP localport=$port" | Out-Null
+Restart-Service TermService -Force -ErrorAction SilentlyContinue
 # public IP
 $ip = ""
 foreach ($u in @("https://api.ipify.org","https://ifconfig.me/ip","https://icanhazip.com")) {
-  try { $ip = (Invoke-RestMethod -Uri $u -TimeoutSec 8); if ($ip) { $ip = "$ip".Trim(); break } } catch {}
+  try { $ip = ("$((Invoke-RestMethod -Uri $u -TimeoutSec 8))").Trim(); if ($ip) { break } } catch {}
 }
-# report credentials back to the panel
-$body = @{ ip=$ip; username=$user; password=$pw; port=$port; status="online" } | ConvertTo-Json
-try { Invoke-RestMethod -Uri "$($c.panel)/api/deploy/$($c.token)/report" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 20 } catch {}
-# clean up: remove config, self, and the scheduled task
-Remove-Item $cfgPath -Force -ErrorAction SilentlyContinue
+# report credentials to the panel BY IP (retry a few times)
+$body = @{ ip=$ip; username=$user; password=$pw; port=$port } | ConvertTo-Json
+foreach ($n in 1..6) { try { Invoke-RestMethod -Uri "$panel/api/report-by-ip" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 20; break } catch { Start-Sleep 10 } }
+# remove the scheduled task (keep the flag so it never runs again)
 schtasks /delete /tn "TIFirstBoot" /f | Out-Null
-Start-Sleep -Seconds 2
-Remove-Item "C:\ti-agent" -Recurse -Force -ErrorAction SilentlyContinue
-# apply the new RDP port without a full reboot
-Restart-Service TermService -Force -ErrorAction SilentlyContinue
 '@
+  $agent = $agent.Replace("__PANEL_URL__", $PanelUrl)
   Set-Content -Path "$dir\firstboot.ps1" -Value $agent -Encoding ASCII
   # register it to run as SYSTEM at every startup
   schtasks /create /tn "TIFirstBoot" /tr "powershell -NoProfile -ExecutionPolicy Bypass -File C:\ti-agent\firstboot.ps1" /sc onstart /ru SYSTEM /rl HIGHEST /f | Out-Null

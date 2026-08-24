@@ -236,6 +236,27 @@ async function handleApi(req, res, pathname) {
     return send(res, 200, { ok: true });
   }
 
+  // Golden-image first-boot agent reports IN by IP (no token — matched to the
+  // most recent in-progress deployment on that public IP). This is how a fast
+  // deploy flips to "online" on shared hosting that blocks the panel's outbound
+  // RDP probe: the report comes INBOUND over a web port, which is allowed.
+  if (pathname === "/api/report-by-ip" && method === "POST") {
+    const { ip, username, password, port } = await readBody(req);
+    if (!ip) return send(res, 400, { error: "ip required" });
+    const d = db.deployments
+      .filter((x) => x.serverIp === ip && ["running", "installing", "rebooting"].includes(x.status))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    if (!d) return send(res, 404, { error: "no matching in-progress deployment for that IP" });
+    if (username) d.config.username = String(username).slice(0, 64);
+    if (password) d.config.password = String(password).slice(0, 128);
+    if (port) d.config.remotePort = Number(port) || d.config.remotePort;
+    d.status = "online";
+    d.logs.push({ at: new Date().toISOString(), stage: "done", message: "First-boot agent reported in — server online." });
+    d.updatedAt = new Date().toISOString();
+    save();
+    return send(res, 200, { ok: true, token: d.token });
+  }
+
   // First-boot agent (on a fast/golden-image deploy) reports the credentials it
   // generated on the machine itself. Token in the path is the credential.
   const mReport = pathname.match(/^\/api\/deploy\/([\w-]+)\/report$/);
