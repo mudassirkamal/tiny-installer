@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Deployment status · TinyInstaller</title>
+<title>Deployment status · Fomze Installer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -52,7 +52,7 @@
 <body class="s-ready">
 <div class="wrap-s">
   <div class="topline">
-    <div class="logo"><span class="a">Tiny</span><span class="b">Installer</span></div>
+    <div class="logo"><span class="a">Fomze</span><span class="b">Installer</span></div>
     <a href="/">← Panel</a>
   </div>
 
@@ -94,7 +94,7 @@
   </div>
 </div>
 
-<footer><div style="text-align:center;color:var(--faint);font-size:12px;padding:24px">TinyInstaller · live deployment status</div></footer>
+<footer><div style="text-align:center;color:var(--faint);font-size:12px;padding:24px">Fomze Installer · live deployment status</div></footer>
 
 <div class="toast" id="toast"></div>
 <script>
@@ -128,8 +128,26 @@ async function tick(){
   $("#osLabel").textContent = d.osLabel || "Deployment";
   $("#tok").textContent = token.slice(0,8)+"…";
   $("#statusLabel").textContent = st.label;
-  $("#statusSub").textContent = st.sub;
-  $("#bar").style.width = st.bar + "%";
+
+  // ---- smooth time-based progress + ETA (TinyInstaller-style) ----
+  // Estimate from when the installer took over (reboot/installing event).
+  const EST_SEC = /fast|⚡/i.test(d.osLabel||"") ? 10*60 : 16*60;  // fast dd vs ISO
+  let sub = st.sub, barW = st.bar;
+  if (d.status==="installing" || d.status==="rebooting") {
+    const logs = d.logs||[];
+    const kick = [...logs].reverse().find(l => l.stage==="reboot" || l.stage==="reinstall");
+    const t0 = kick ? new Date(kick.at).getTime() : (logs[0]? new Date(logs[0].at).getTime() : Date.now());
+    const elapsed = Math.max(0,(Date.now()-t0)/1000);
+    const frac = Math.min(0.97, elapsed/EST_SEC);           // never hit 100% until Online
+    barW = Math.max(st.bar, Math.round(20 + frac*77));       // 20% -> 97%
+    const remain = Math.max(0, Math.ceil((EST_SEC-elapsed)/60));
+    sub = remain>0 ? `Installing Windows in the background · about ${remain} min remaining…`
+                   : "Almost there · finishing up and waiting for the server to come online…";
+  } else if (d.status==="online" || d.status==="completed") {
+    barW = 100; sub = "The server is up and reachable. Connect with the details below.";
+  }
+  $("#statusSub").textContent = sub;
+  $("#bar").style.width = barW + "%";
 
   // stages
   const isDone = d.status==="online"||d.status==="completed";

@@ -19,35 +19,19 @@ let currentToken = null;
 let currentCommand = "";
 const GF_ICONS = { chrome: "🌐", firefox: "🦊", edge: "🌊", brave: "🦁", "7zip": "🗜️" };
 
-// ---------- Auth ----------
-let authMode = "login";
+// ---------- Auth (single access key) ----------
 function showAuth() { $("#auth").classList.remove("hidden"); $("#app").classList.add("hidden"); }
 function showApp() { $("#auth").classList.add("hidden"); $("#app").classList.remove("hidden"); }
 
-function bindAuthToggle() { $("#authToggle").onclick = toggleAuth; }
-function toggleAuth() {
-  authMode = authMode === "login" ? "register" : "login";
-  $("#authSub").textContent = authMode === "login" ? "Sign in to your deployment panel" : "Create your deployment panel account";
-  $("#authBtn").textContent = authMode === "login" ? "Sign in" : "Create account";
-  $("#authSwitch").innerHTML = authMode === "login"
-    ? 'No account? <a id="authToggle">Create one</a>'
-    : 'Have an account? <a id="authToggle">Sign in</a>';
-  bindAuthToggle();
-  $("#authErr").textContent = "";
-}
-bindAuthToggle();
-
 $("#authBtn").onclick = async () => {
-  const email = $("#authEmail").value.trim();
-  const password = $("#authPass").value;
+  const key = $("#authKey").value.trim();
   $("#authErr").textContent = "";
   try {
-    const path = authMode === "login" ? "/api/login" : "/api/register";
-    const { user } = await api(path, { method: "POST", body: { email, password } });
+    const { user } = await api("/api/login-key", { method: "POST", body: { key } });
     ME = user; await boot();
   } catch (e) { $("#authErr").textContent = e.message; }
 };
-$("#authPass").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#authBtn").click(); });
+$("#authKey").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#authBtn").click(); });
 
 $("#logoutBtn").onclick = async () => { await api("/api/logout", { method: "POST" }); location.reload(); };
 
@@ -95,9 +79,20 @@ function updateOsHint() {
 $("#osImage").addEventListener("change", updateOsHint);
 
 function renderAccount() {
-  $("#greetName").textContent = "Hi " + (ME.email.split("@")[0].replace(/^./, (c) => c.toUpperCase()));
+  const name = ME.email === "owner" ? "Fomze" : ME.email.split("@")[0].replace(/^./, (c) => c.toUpperCase());
+  $("#greetName").textContent = "Hi " + name;
   $("#accountNo").textContent = "# " + ME.accountNo;
   $("#planBadge").firstChild.textContent = ME.plan + " ";
+  if (ME.unlimited) {
+    $("#expBar").style.width = "100%";
+    $("#expDays").textContent = "No expiry";
+    $("#expDate").textContent = "Unlimited";
+    $("#useBar").style.width = "100%";
+    $("#useLeft").textContent = "Unlimited deployments";
+    $("#procBar").style.width = "0%";
+    $("#procTxt").textContent = `${ME.activeProcesses} active · no limit`;
+    return;
+  }
   // expiry
   const now = Date.now();
   const created = new Date(ME.createdAt).getTime();

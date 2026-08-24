@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>TinyInstaller Panel</title>
+<title>Fomze Installer — Windows VPS Deployer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,19 +14,15 @@
 <!-- ============ AUTH ============ -->
 <div id="auth" class="auth">
   <div class="auth-card">
-    <div class="logo"><span class="a">Tiny</span><span class="b">Installer</span></div>
-    <p class="sub" id="authSub">Sign in to your deployment panel</p>
+    <div class="logo"><span class="a">Fomze</span><span class="b">Installer</span></div>
+    <p class="sub" id="authSub">Enter your access key to deploy</p>
     <div class="field">
-      <label>Email</label>
-      <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email">
-    </div>
-    <div class="field">
-      <label>Password</label>
-      <input id="authPass" type="password" placeholder="••••••••" autocomplete="current-password">
+      <label>Access key</label>
+      <input id="authKey" type="password" placeholder="Enter your access key" autocomplete="off">
     </div>
     <p class="auth-err" id="authErr"></p>
-    <button class="btn brand" id="authBtn" style="width:100%;justify-content:center;padding:12px">Sign in</button>
-    <p class="auth-switch" id="authSwitch">No account? <a id="authToggle">Create one</a></p>
+    <button class="btn brand" id="authBtn" style="width:100%;justify-content:center;padding:12px">Unlock panel</button>
+    <p class="auth-switch">One key · your account · no limits.</p>
   </div>
 </div>
 
@@ -34,7 +30,7 @@
 <div id="app" class="hidden">
   <nav class="nav">
     <div class="nav-in">
-      <div class="logo"><span class="a">Tiny</span><span class="b">Installer</span></div>
+      <div class="logo"><span class="a">Fomze</span><span class="b">Installer</span></div>
       <div class="nav-links">
         <a class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
         <a><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>Deployment Profiles</a>
@@ -140,7 +136,7 @@
       </div>
     </div>
 
-    <p class="notice info"><span>ⓘ</span> TinyInstaller provides operating system deployment only. No software licenses or activation are included. You are responsible for ensuring compliance with applicable licensing requirements — and for only deploying to servers you own or manage.</p>
+    <p class="notice info"><span>ⓘ</span> Fomze Installer deploys the operating system only. No software licenses or activation are included. You are responsible for licensing compliance and for only deploying to servers you own or manage.</p>
 
     <!-- command -->
     <div style="margin-top:26px">
@@ -213,10 +209,10 @@
       <a title="Telegram"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.9 4.3l-3.3 15.6c-.2 1.1-.9 1.4-1.8.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5 9.1-8.2c.4-.4-.1-.6-.6-.2L6 12.9l-4.9-1.5c-1.1-.3-1.1-1 .2-1.5l19.1-7.4c.9-.3 1.7.2 1.4 1.8z"/></svg></a>
       <a title="Discord"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 4.4A19 19 0 0 0 15.3 3l-.3.5a13 13 0 0 1 4 2 15 15 0 0 0-13.8 0 13 13 0 0 1 4-2L8.7 3A19 19 0 0 0 4 4.4 20 20 0 0 0 .5 18.3 19 19 0 0 0 6.3 21l.4-.6a11 11 0 0 1-2-1l.5-.4a13 13 0 0 0 11.6 0l.5.4a11 11 0 0 1-2 1l.4.6a19 19 0 0 0 5.8-2.7A20 20 0 0 0 20 4.4zM8.3 15.3c-.9 0-1.7-.9-1.7-1.9s.8-1.9 1.7-1.9 1.7.9 1.7 1.9-.8 1.9-1.7 1.9zm7.4 0c-.9 0-1.7-.9-1.7-1.9s.8-1.9 1.7-1.9 1.7.9 1.7 1.9-.8 1.9-1.7 1.9z"/></svg></a>
     </div>
-    <div>© 2024 iBash.</div>
+    <div>© 2026 Fomze.</div>
     <div style="margin-top:8px;max-width:640px;margin-inline:auto;color:var(--faint)">
-      All trademarks and registered trademarks are the property of their respective owners.
-      This service is an independent deployment automation service and is not affiliated with or endorsed by any operating system vendor.
+      All trademarks are the property of their respective owners. Fomze Installer is an independent
+      deployment automation tool and is not affiliated with any operating system vendor.
     </div>
   </footer>
 </div>

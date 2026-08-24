@@ -116,7 +116,7 @@ function currentUser(req) {
 function publicUser(u) {
   return {
     id: u.id, email: u.email, plan: u.plan,
-    accountNo: u.accountNo,
+    accountNo: u.accountNo, unlimited: !!u.unlimited,
     expiresAt: u.expiresAt, createdAt: u.createdAt,
     usageTotal: u.usageTotal, usageLeft: u.usageLeft,
     maxProcesses: u.maxProcesses,
@@ -203,6 +203,32 @@ async function handleApi(req, res, pathname) {
     const user = db.users.find((u) => u.email.toLowerCase() === String(email || "").toLowerCase());
     if (!user || !U.verifyPassword(password || "", user.salt, user.passHash))
       return send(res, 401, { error: "Invalid email or password." });
+    return login(res, user);
+  }
+
+  // Access-key login: one secret key = your unlimited owner account.
+  // Set TI_ACCESS_KEY in the host environment; this is the only credential.
+  if (pathname === "/api/login-key" && method === "POST") {
+    const { key } = await readBody(req);
+    const want = process.env.TI_ACCESS_KEY || "fomze-owner-change-me";
+    if (!key || String(key) !== want)
+      return send(res, 401, { error: "Invalid access key." });
+    let user = db.users.find((u) => u.owner);
+    if (!user) {
+      user = {
+        id: U.uuid(), owner: true, unlimited: true,
+        accountNo: 10001, email: "owner",
+        plan: "Owner", createdAt: new Date().toISOString(),
+        expiresAt: daysFromNow(3650),
+        usageTotal: 999999, usageLeft: 999999, maxProcesses: 999,
+      };
+      db.users.push(user);
+      save();
+    } else {
+      user.unlimited = true; user.plan = "Owner";
+      user.expiresAt = daysFromNow(3650); user.maxProcesses = 999;
+      save();
+    }
     return login(res, user);
   }
 
@@ -385,12 +411,14 @@ function createDeployment(req, res, user, cfg) {
   const meta = OS_IMAGES.find((o) => o.id === config.osImage) || {};
   const cost = meta.cost || 1;
 
-  if (user.usageLeft < cost)
+  if (!user.unlimited && user.usageLeft < cost)
     return send(res, 402, { error: `Not enough usage tokens (need ${cost}, have ${user.usageLeft}). Renew to top up.` });
 
-  const active = db.deployments.filter((x) => x.userId === user.id && ["running", "rebooting"].includes(x.status)).length;
-  if (active >= user.maxProcesses)
-    return send(res, 429, { error: `Concurrent deployment limit reached (${user.maxProcesses}). Wait for one to finish.` });
+  if (!user.unlimited) {
+    const active = db.deployments.filter((x) => x.userId === user.id && ["running", "rebooting"].includes(x.status)).length;
+    if (active >= user.maxProcesses)
+      return send(res, 429, { error: `Concurrent deployment limit reached (${user.maxProcesses}). Wait for one to finish.` });
+  }
 
   const d = {
     token: U.uuid(),
@@ -402,8 +430,8 @@ function createDeployment(req, res, user, cfg) {
     updatedAt: new Date().toISOString(),
     logs: [],
   };
-  // Charge tokens on creation (mirrors TinyInstaller's "1 token" per deployment).
-  user.usageLeft -= cost;
+  // Charge tokens on creation (owner account is unlimited — never charged).
+  if (!user.unlimited) user.usageLeft -= cost;
   db.deployments.push(d);
   save();
   return send(res, 200, {
@@ -599,5 +627,5 @@ async function probeDeployments() {
 setInterval(() => { probeDeployments().catch(() => {}); }, 15000);
 
 server.listen(PORT, () => {
-  console.log(`\n  TinyInstaller Panel running →  http://localhost:${PORT}\n`);
+  console.log(`\n  Fomze Installer running →  http://localhost:${PORT}\n`);
 });
