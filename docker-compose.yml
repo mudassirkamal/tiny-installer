@@ -6,6 +6,7 @@ services:
     environment:
       - PORT=8787
       - TI_SECRET=${TI_SECRET:?set TI_SECRET in .env}
+      - TI_ACCESS_KEY=${TI_ACCESS_KEY:-fomze-owner-change-me}
     volumes:
       - ./data:/app/data
     # HTTP mode (no domain): panel is reachable on http://SERVER_IP:8787
