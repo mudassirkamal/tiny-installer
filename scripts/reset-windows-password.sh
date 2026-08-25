@@ -48,15 +48,21 @@ HAVE_HIVEX=0
 command -v hivexregedit >/dev/null 2>&1 && HAVE_HIVEX=1
 
 # --- find the Windows partition (the one holding the SAM) ---
-# NTFS often mounts read-only if Windows used fast-startup/hibernation (dirty
-# volume). We clear the dirty flag (ntfsfix) and mount with remove_hiberfile,force.
+# A Windows that was rebooted straight into rescue leaves the NTFS "dirty": it may
+# mount read-only, or Windows may replay its journal on next boot and UNDO our
+# offline changes. We fully repair the volume (ntfsfix), mount rw with force, and
+# clear the dirty flag again after writing so Windows keeps our files.
 say "${c_c}Looking for the Windows partition...${c_0}"
 MNT=/mnt/win; mkdir -p "$MNT"
 SAMDIR=""; WINPART=""
-for part in $(lsblk -lnpo NAME,FSTYPE 2>/dev/null | awk '$2 ~ /ntfs/ {print $1}'); do
+mount_rw() {  # $1 = partition; try hard to get a writable mount
   umount "$MNT" 2>/dev/null || true
-  ntfsfix -d "$part" >/dev/null 2>&1 || true      # clear the NTFS dirty flag
-  if mount -t ntfs-3g -o rw,remove_hiberfile,force "$part" "$MNT" 2>/dev/null; then
+  ntfsfix "$1"    >/dev/null 2>&1 || true   # full repair (fixes journal/inconsistencies)
+  ntfsfix -d "$1" >/dev/null 2>&1 || true   # clear the dirty flag
+  mount -t ntfs-3g -o rw,remove_hiberfile,force "$1" "$MNT" 2>/dev/null
+}
+for part in $(lsblk -lnpo NAME,FSTYPE 2>/dev/null | awk '$2 ~ /ntfs/ {print $1}'); do
+  if mount_rw "$part"; then
     d=$(find "$MNT" -maxdepth 3 -ipath "*/Windows/System32/config" -type d 2>/dev/null | head -n1)
     if [ -n "$d" ] && [ -f "$d/SAM" ]; then SAMDIR="$d"; WINPART="$part"; break; fi
     umount "$MNT" 2>/dev/null || true
@@ -65,10 +71,15 @@ done
 [ -n "$SAMDIR" ] || die "Could not find a Windows install (SAM) on any NTFS partition."
 say "${c_g}Found Windows on $WINPART${c_0}"
 
-# --- verify the volume is actually writable (else everything below is a no-op) ---
-if ! ( touch "$MNT/.rwtest" 2>/dev/null && rm -f "$MNT/.rwtest" 2>/dev/null ); then
+# --- verify the volume is actually writable; retry a full repair once if not ---
+rwok() { touch "$MNT/.rwtest" 2>/dev/null && rm -f "$MNT/.rwtest" 2>/dev/null; }
+if ! rwok; then
+  say "${c_y}Volume mounted read-only - repairing and retrying...${c_0}"
+  mount_rw "$WINPART" >/dev/null 2>&1 || true
+fi
+if ! rwok; then
   umount "$MNT" 2>/dev/null || true
-  die "Windows partition is read-only (fast-startup/hibernation left it dirty). Fix: in Windows run 'powercfg /h off' before shutting down, or reboot Windows fully once, then retry."
+  die "Windows partition is read-only (dirty NTFS). Do a CLEAN shutdown of Windows first (Start > Shut down), THEN boot rescue and retry - not a reset-into-rescue."
 fi
 
 # --- no --user: just list accounts ---
@@ -125,6 +136,15 @@ if [ -n "$PASSWORD" ]; then
 
   # (B) Fomze images also carry the TIResetWatch task -> drop its trigger file too
   mkdir -p "$MNT/ti-reset" 2>/dev/null && printf '%s' "$PASSWORD" > "$MNT/ti-reset/newpass.txt" 2>/dev/null || true
+
+  # verify the files really landed (catches a silent read-only/rollback situation)
+  sync
+  if [ -f "$MNT/ti-resetpw.ps1" ] && [ -f "$MNT/ti-reset/newpass.txt" ]; then
+    say "${c_g}Verified: reset files written to disk.${c_0}"
+  else
+    umount "$MNT" 2>/dev/null || true
+    die "Files did not persist (read-only/dirty volume). Do a CLEAN shutdown of Windows first, then boot rescue and retry."
+  fi
 else
   # No new password: just clear it (log in blank), best-effort via chntpw
   say "${c_c}Clearing password for '$USER'...${c_0}"
@@ -133,6 +153,7 @@ else
 fi
 
 sync; umount "$MNT" 2>/dev/null || true
+ntfsfix -d "$WINPART" >/dev/null 2>&1 || true   # mark clean so Windows keeps our files (no boot-time chkdsk)
 printf '\n  %sDone.%s All data intact. Now: turn OFF Rescue System and reboot into Windows.\n' "$c_g" "$c_0"
 if [ -n "$PASSWORD" ]; then
   printf '   Wait ~1-2 min for the boot script to run, then RDP in as %s%s%s with:  %s%s%s\n' "$c_c" "$USER" "$c_0" "$c_c" "$PASSWORD" "$c_0"
