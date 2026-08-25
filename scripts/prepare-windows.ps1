@@ -117,6 +117,8 @@ $flag = "C:\ti-agent\done.flag"
 if (Test-Path $flag) { exit }
 New-Item -ItemType File -Force -Path $flag | Out-Null   # run exactly once per clone
 $panel = "__PANEL_URL__"
+# older Windows (2016/2019) default to TLS 1.0 which the panel's HTTPS rejects
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}
 # wait for network (up to ~90s)
 for ($i=0; $i -lt 45; $i++) { if (Test-Connection -Count 1 -Quiet -ComputerName 8.8.8.8) { break }; Start-Sleep 2 }
 # fetch the panel's first-boot routine and run it (retry a few times)

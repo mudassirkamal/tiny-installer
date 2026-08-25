@@ -15,6 +15,8 @@
 
 $ErrorActionPreference = "Continue"
 $ProgressPreference    = "SilentlyContinue"
+# Older Windows (2016/2019) default to TLS 1.0 which the panel's HTTPS rejects.
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}
 $panel   = "__API_BASE__"
 $company = "Fomze"
 $wallUrl = "https://res.cloudinary.com/dikxngewb/image/upload/v1787536969/fomze_vps_twsw6y.png"
