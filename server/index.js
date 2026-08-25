@@ -52,8 +52,8 @@ const NODES = [
 // sizeGb / cost are shown in the UI (cost = usage tokens consumed), matching TinyInstaller.
 const OS_IMAGES = [
   // Only three Windows Server versions — this is all Fomze Installer deploys.
-  { id: "ws2022-datacenter-eval", type: "windows", label: "Windows Server 2022", method: "reinstall",
-    imageName: "Windows Server 2022 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195280", sizeGb: 11, cost: 1 },
+  { id: "ws2022-datacenter-eval", type: "windows", label: "Windows Server 2022 (Fast ⚡)", method: "dd",
+    imageUrl: "https://panel.fomze.com/images/ws2022.img.gz", sizeGb: 20, cost: 1 },
   { id: "ws2019-datacenter-eval", type: "windows", label: "Windows Server 2019", method: "reinstall",
     imageName: "Windows Server 2019 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195167", sizeGb: 11, cost: 1 },
   { id: "ws2016-datacenter-eval", type: "windows", label: "Windows Server 2016", method: "reinstall",
