@@ -56,8 +56,8 @@ const OS_IMAGES = [
     imageUrl: "https://panel.fomze.com/images/ws2022.img.gz", sizeGb: 20, cost: 1 },
   { id: "ws2019-datacenter-eval", type: "windows", label: "Windows Server 2019 (Fast ⚡)", method: "dd",
     imageUrl: "https://panel.fomze.com/images/ws2019.img.gz", sizeGb: 20, cost: 1 },
-  { id: "ws2016-datacenter-eval", type: "windows", label: "Windows Server 2016", method: "reinstall",
-    imageName: "Windows Server 2016 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195174", sizeGb: 12, cost: 1 },
+  { id: "ws2016-datacenter-eval", type: "windows", label: "Windows Server 2016 (Fast ⚡)", method: "dd",
+    imageUrl: "https://panel.fomze.com/images/ws2016.img.gz", sizeGb: 20, cost: 1 },
 ];
 
 // "Get File" quick-picks — a browser/tool to install once the box is online.
