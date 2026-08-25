@@ -125,37 +125,66 @@ Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' -Nam
 try { Set-Service DiagTrack -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service DiagTrack -Force -ErrorAction SilentlyContinue } catch {}
 EnsureKey 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' -Name NetworkThrottlingIndex -Value 0xffffffff -Type DWord -ErrorAction SilentlyContinue
+# 1) no Shutdown Event Tracker ("why did you shut down" dialog)
+EnsureKey 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Reliability'
+Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Reliability' -Name ShutdownReasonOn -Value 0 -Type DWord -ErrorAction SilentlyContinue
+# 2) no "set network location" prompt + make networks Private
+EnsureKey 'HKLM:\SYSTEM\CurrentControlSet\Control\Network\NewNetworkWindowOff'
+try { Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue } catch {}
+# 4) SysMain/Superfetch off (unneeded on SSD, saves I/O)
+try { Set-Service SysMain -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service SysMain -Force -ErrorAction SilentlyContinue } catch {}
+# 5) Print Spooler off (perf + PrintNightmare security; no printing on a VPS)
+try { Set-Service Spooler -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service Spooler -Force -ErrorAction SilentlyContinue } catch {}
+# 6) RDP keep-alive so idle sessions don't drop
+EnsureKey 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
+Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name KeepAliveEnable   -Value 1 -Type DWord -ErrorAction SilentlyContinue
+Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name KeepAliveInterval -Value 1 -Type DWord -ErrorAction SilentlyContinue
+# 7) no first-logon animation + no consumer features/tips/ads
+EnsureKey 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name EnableFirstLogonAnimation -Value 0 -Type DWord -ErrorAction SilentlyContinue
+EnsureKey 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent'
+Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' -Name DisableWindowsConsumerFeatures -Value 1 -Type DWord -ErrorAction SilentlyContinue
+# 9) IE + Edge first-run experience off
+EnsureKey 'HKLM:\SOFTWARE\Policies\Microsoft\Internet Explorer\Main'
+Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Internet Explorer\Main' -Name DisableFirstRunCustomize -Value 1 -Type DWord -ErrorAction SilentlyContinue
+EnsureKey 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
+Set-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' -Name HideFirstRunExperience -Value 1 -Type DWord -ErrorAction SilentlyContinue
 Report "optimize" "Applied performance settings and policies"
 
-# ------------------------------------------------------------------- wallpaper
+# --------------------------------------- wallpaper + per-user desktop preferences
+$wp = ""
 try {
-  $dir = "C:\Windows\Web\Wallpaper\Fomze"
-  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  $dir = "C:\Windows\Web\Wallpaper\Fomze"; New-Item -ItemType Directory -Force -Path $dir | Out-Null
   $wp = Join-Path $dir "wallpaper.jpg"
   if (Get-Command curl.exe -ErrorAction SilentlyContinue) { curl.exe -s -L -o $wp $wallUrl } else { Invoke-WebRequest $wallUrl -OutFile $wp -UseBasicParsing }
-  if (Test-Path $wp) {
-    # We run as SYSTEM before the admin logs in, so set the wallpaper in EACH real
-    # user profile's hive (offline) + the Default profile. That way it shows the
-    # moment the customer connects over RDP.
-    function SetWall($hiveRoot) {
-      reg add "$hiveRoot\Control Panel\Desktop" /v Wallpaper      /t REG_SZ /d "$wp" /f | Out-Null
-      reg add "$hiveRoot\Control Panel\Desktop" /v WallpaperStyle /t REG_SZ /d 10   /f | Out-Null
-      reg add "$hiveRoot\Control Panel\Desktop" /v TileWallpaper  /t REG_SZ /d 0    /f | Out-Null
-    }
-    # every existing user profile (Administrator, etc.) that isn't loaded yet
-    Get-ChildItem "C:\Users" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-      $dat = Join-Path $_.FullName "NTUSER.DAT"
-      if (Test-Path $dat) {
-        $tag = "TIW_" + $_.Name
-        reg load "HKU\$tag" "$dat" 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) { SetWall "HKU\$tag"; reg unload "HKU\$tag" 2>$null | Out-Null }
-      }
-    }
-    # default profile -> any user created later
-    reg load "HKU\DEF" "C:\Users\Default\NTUSER.DAT" 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { SetWall "HKU\DEF"; reg unload "HKU\DEF" 2>$null | Out-Null }
+  if (-not (Test-Path $wp)) { $wp = "" }
+} catch { $wp = "" }
+# We run as SYSTEM before the admin logs in, so apply per-user settings into EACH
+# user hive (offline) + the Default profile: wallpaper (3=This PC/User Files icons,
+# 8=show file extensions + hidden files). Shows the moment the customer connects.
+function SetUserPrefs($h) {
+  if ($wp) {
+    reg add "$h\Control Panel\Desktop" /v Wallpaper      /t REG_SZ /d "$wp" /f | Out-Null
+    reg add "$h\Control Panel\Desktop" /v WallpaperStyle /t REG_SZ /d 10   /f | Out-Null
+    reg add "$h\Control Panel\Desktop" /v TileWallpaper  /t REG_SZ /d 0    /f | Out-Null
   }
-} catch {}
+  $ns = "$h\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel"
+  reg add "$ns" /v "{20D04FE0-3AEA-1069-A2D8-08002B30309D}" /t REG_DWORD /d 0 /f | Out-Null
+  reg add "$ns" /v "{59031a47-3f72-44a7-89c5-5595fe6b30ee}" /t REG_DWORD /d 0 /f | Out-Null
+  $adv = "$h\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+  reg add "$adv" /v HideFileExt /t REG_DWORD /d 0 /f | Out-Null
+  reg add "$adv" /v Hidden      /t REG_DWORD /d 1 /f | Out-Null
+}
+Get-ChildItem "C:\Users" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+  $dat = Join-Path $_.FullName "NTUSER.DAT"
+  if (Test-Path $dat) {
+    $tag = "TIW_" + $_.Name
+    reg load "HKU\$tag" "$dat" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { SetUserPrefs "HKU\$tag"; reg unload "HKU\$tag" 2>$null | Out-Null }
+  }
+}
+reg load "HKU\DEF" "C:\Users\Default\NTUSER.DAT" 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) { SetUserPrefs "HKU\DEF"; reg unload "HKU\DEF" 2>$null | Out-Null }
 # Robust fallback: also force the wallpaper live at the next user logon (covers
 # profiles whose hive couldn't be edited offline - e.g. an already-active session
 # baked into the image). Re-applies each logon; harmless + keeps branding.
