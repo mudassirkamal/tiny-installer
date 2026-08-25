@@ -107,7 +107,16 @@
       </div>
       <div class="row">
         <div class="lbl">Remote port</div>
-        <div><input id="remotePort" type="number" placeholder="default 22"></div>
+        <div>
+          <div class="inline" style="gap:10px;align-items:stretch">
+            <input id="remotePort" type="number" placeholder="default 22" style="flex:1">
+            <button class="btn ghost" id="randPort" type="button" title="Random port (10000–65535)">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
+              Random
+            </button>
+          </div>
+          <div class="hint">Click Random for a shuffled port between 10000 and 65535.</div>
+        </div>
       </div>
       <div class="row">
         <div class="lbl">Username</div>

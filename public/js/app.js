@@ -277,6 +277,13 @@ $("#renewBtn").onclick = async () => {
 };
 $("#themeToggle").onclick = () => toast("Dark theme is the house style ✦");
 
+// Random remote port (10000–65535)
+if ($("#randPort")) $("#randPort").onclick = () => {
+  $("#remotePort").value = Math.floor(Math.random() * (65535 - 10000 + 1)) + 10000;
+  scheduleSync();
+  toast("Random port set");
+};
+
 // ---------- Reset Windows password command (Documents) ----------
 function renderResetCmd() {
   const el = document.getElementById("resetCmd"); if (!el) return;
