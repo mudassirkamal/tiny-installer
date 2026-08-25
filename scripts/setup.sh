@@ -259,7 +259,9 @@ deploy_dd_image() {
   report "download" "Writing pre-built image via the reinstall engine (safe RAM boot)" "running"
   info "Deploying image with the reinstall engine — it boots into RAM first, then writes + auto-extends."
   info "Invoking: reinstall.sh dd --img \"$IMAGE_URL\""
-  bash /tmp/reinstall.sh dd --img "$IMAGE_URL" || die "Reinstall engine (dd mode) reported an error."
+  # The engine's dd mode prompts for an (irrelevant for a Windows image) username;
+  # feed blank lines so it runs fully unattended (no operator input needed).
+  yes '' | bash /tmp/reinstall.sh dd --img "$IMAGE_URL" || die "Reinstall engine (dd mode) reported an error."
   ok "Image deployment staged. The server will reboot into the installer and write your image."
   info "${c_grn}This now runs on the server itself — you can safely close this terminal and watch the status page:${c_rst}"
   info "${c_grn}  $API_BASE/d/$TOKEN${c_rst}"

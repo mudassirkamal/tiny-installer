@@ -83,14 +83,9 @@
     <div class="ready-note" id="readyNote" style="display:none"></div>
   </div>
 
-  <div class="card-s" id="liveWrap" style="display:none">
-    <h2>Live install logs <span class="muted" id="liveHint">— streamed from the server</span></h2>
-    <div class="console" id="console"></div>
-  </div>
-
   <div class="card-s">
-    <h2>Event log</h2>
-    <div class="console" id="events" style="max-height:200px;color:#c9d4ff"></div>
+    <h2>Live log <span class="muted">— everything happening on your server</span></h2>
+    <div class="console" id="events" style="max-height:360px;color:#c9d4ff"></div>
   </div>
 </div>
 
@@ -99,6 +94,7 @@
 <div class="toast" id="toast"></div>
 <script>
 const token = location.pathname.split("/").pop();
+let _dl = { r: 0, t: 0 };   // download-speed tracker for the ETA
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s==null?"":s).replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),1600);}
@@ -136,7 +132,17 @@ async function tick(){
   if ((d.status==="installing" || d.status==="rebooting" || d.status==="running") && d.download && d.download.pct!=null && d.download.pct < 100) {
     // Real download progress (the target is pulling the image from the panel).
     const gb = (n)=> (n/1073741824).toFixed(1);
-    sub = `Downloading OS image to the server · ${d.download.pct}%  (${gb(d.download.received)} / ${gb(d.download.total)} GB)`;
+    const now = Date.now();
+    let etaTxt = "";
+    if (_dl.t && d.download.received > _dl.r) {
+      const spd = (d.download.received - _dl.r) / ((now - _dl.t) / 1000);   // bytes/s
+      if (spd > 0) {
+        const secs = Math.max(0, Math.round((d.download.total - d.download.received) / spd));
+        etaTxt = secs > 90 ? ` · about ${Math.ceil(secs/60)} min left` : ` · about ${secs} sec left`;
+      }
+    }
+    _dl = { r: d.download.received, t: now };
+    sub = `Downloading OS image to the server · ${d.download.pct}%  (${gb(d.download.received)} / ${gb(d.download.total)} GB)${etaTxt}`;
     barW = Math.max(6, Math.round(d.download.pct * 0.55));   // download = first ~55% of the bar
   } else if (d.status==="installing" || d.status==="rebooting") {
     const logs = d.logs||[];
@@ -169,7 +175,7 @@ async function tick(){
     setKv("#vIp", d.serverIp || "pending…", d.serverIp);
     setKv("#vPort", d.port, d.port);
     setKv("#vUser", d.username, d.username);
-    setKv("#vPass", d.password, d.password);
+    setKv("#vPass", d.password || "pending…", d.password);
   }
 
   // ready note
@@ -180,23 +186,13 @@ async function tick(){
       + (d.postInstall ? `<br><span class="muted">Post-install for ${esc(d.postInstall.label)} is available in the panel.</span>` : "");
   } else $("#readyNote").style.display="none";
 
-  // live install logs (relayed from the engine)
-  if(d.installLog){
-    $("#liveWrap").style.display="";
-    const c=$("#console"); const atBottom = c.scrollTop+c.clientHeight >= c.scrollHeight-40;
-    c.textContent = d.installLog;
-    if(atBottom) c.scrollTop = c.scrollHeight;
-  } else if(d.status==="installing" || d.status==="rebooting"){
-    $("#liveWrap").style.display="";
-    $("#console").textContent =
-      "Windows is installing on the server in the background.\n"+
-      "This deployment installs headless, so line-by-line internal logs are not streamed here —\n"+
-      "follow the stages and the time estimate above. The server becomes reachable when it finishes.";
-  } else $("#liveWrap").style.display = "none";
-
-  // event log
+  // one unified Live log: staged events (+ any relayed engine log at the bottom)
   const ev=$("#events");
-  ev.innerHTML = (d.logs||[]).map(l=>`<div><span style="color:var(--faint)">${(l.at||"").slice(11,19)}</span> ${esc(l.stage?"["+l.stage+"] ":"")}${esc(l.message)}</div>`).join("") || '<div class="muted">Waiting for the server to run the command…</div>';
+  const atBottom = ev.scrollTop+ev.clientHeight >= ev.scrollHeight-40;
+  let html = (d.logs||[]).map(l=>`<div><span style="color:var(--faint)">${(l.at||"").slice(11,19)}</span> ${esc(l.stage?"["+l.stage+"] ":"")}${esc(l.message)}</div>`).join("");
+  if(d.installLog){ html += `<div style="color:var(--faint);margin-top:8px">— streamed from the installer —</div><div>${esc(d.installLog)}</div>`; }
+  ev.innerHTML = html || '<div class="muted">Waiting for the server to run the command…</div>';
+  if(atBottom) ev.scrollTop = ev.scrollHeight;
 }
 function setKv(sel,text,copyVal){ const el=$(sel); el.innerHTML=esc(text); if(copyVal){ const b=document.createElement("span"); b.className="cp"; b.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>'; cp(b,String(copyVal)); el.appendChild(b);} }
 

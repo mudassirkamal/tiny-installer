@@ -19,7 +19,7 @@ $panel   = "__API_BASE__"
 $company = "Fomze"
 $wallUrl = "https://res.cloudinary.com/dikxngewb/image/upload/v1787536969/fomze_vps_twsw6y.png"
 $user    = "administrator"
-$port    = 22
+$port    = 22   # default; overridden below by the operator's chosen port
 
 function EnsureKey($p){ if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null } }
 
@@ -40,6 +40,18 @@ function Report($stage, $msg, $status, $extra) {
   try { Invoke-RestMethod -Uri "$panel/api/report-by-ip" -Method Post -Body ($b | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 15 | Out-Null } catch {}
 }
 
+# fetch the operator's chosen port / username / browser for this deployment by IP,
+# so a generic golden image still honours what was picked in the panel
+$browser = ""
+if ($ip) {
+  try {
+    $cfg = Invoke-RestMethod -Uri "$panel/api/deploy-config-by-ip?ip=$ip" -TimeoutSec 15
+    if ($cfg.port)     { $port = [int]$cfg.port }
+    if ($cfg.username) { $user = "$($cfg.username)" }
+    if ($cfg.browser)  { $browser = "$($cfg.browser)" }
+  } catch {}
+}
+
 Report "boot" "Windows booted - configuring your server"
 
 # ------------------------------------------------------ extend C: to full disk
@@ -50,16 +62,25 @@ Report "disk" "Expanded system disk to full size"
 # ------------------------------------------- fresh random admin password + RDP
 $chars = (48..57)+(65..90)+(97..122)
 $pw = (-join ($chars | Get-Random -Count 14 | ForEach-Object {[char]$_})) + "@9"
-cmd /c "net user `"$user`" `"$pw`"" | Out-Null
+# ensure the account exists (the image ships with "administrator"; if the operator
+# chose a different username, create it and make it an admin)
+net user "$user" 2>$null | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  cmd /c "net user `"$user`" `"$pw`" /add" | Out-Null
+  cmd /c "net localgroup administrators `"$user`" /add" | Out-Null
+} else {
+  cmd /c "net user `"$user`" `"$pw`"" | Out-Null
+}
 cmd /c "net user `"$user`" /active:yes" | Out-Null
 try { Set-LocalUser -Name $user -PasswordNeverExpires $true -ErrorAction SilentlyContinue } catch {}
+# RDP on + set the chosen port + firewall (both the built-in group and our rule)
 Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -ErrorAction SilentlyContinue
 Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name PortNumber -Value $port -ErrorAction SilentlyContinue
 cmd /c "netsh advfirewall firewall add rule name=`"TI-RDP`" dir=in action=allow protocol=TCP localport=$port" | Out-Null
 Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
 Restart-Service TermService -Force -ErrorAction SilentlyContinue
-# tell the panel the real credentials right away (so it shows the correct password)
-Report "account" "Created administrator account and enabled Remote Desktop" "installing" @{ username=$user; password=$pw; port=$port }
+# tell the panel the real credentials right away (so it shows the correct password + port)
+Report "account" "Created $user account and enabled Remote Desktop on port $port" "installing" @{ username=$user; password=$pw; port=$port }
 
 # ------------------------------------------------- performance policies + tweaks
 try { powercfg /setactive SCHEME_MIN } catch {}
@@ -111,17 +132,36 @@ try {
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name RegisteredOrganization -Value $company -ErrorAction SilentlyContinue
 Report "brand" "Applied $company wallpaper and branding"
 
-# ---------------------------------------------------------------------- Chrome
-try {
-  $f = "$env:TEMP\chrome.exe"
-  if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-    curl.exe -s -L -o $f "https://dl.google.com/chrome/install/standalonesetup64.exe"
-  } else {
-    Invoke-WebRequest "https://dl.google.com/chrome/install/standalonesetup64.exe" -OutFile $f -UseBasicParsing
-  }
-  if (Test-Path $f) { Start-Process $f -ArgumentList "/silent","/install" -Wait }
-} catch {}
-Report "apps" "Installed Google Chrome"
+# ------------------------------------------------------- optional browser install
+# Only installs the browser the operator picked in the panel (empty = none).
+function Get-File($url, $out) {
+  try {
+    if (Get-Command curl.exe -ErrorAction SilentlyContinue) { curl.exe -s -L -o $out $url } else { Invoke-WebRequest $url -OutFile $out -UseBasicParsing }
+    return (Test-Path $out)
+  } catch { return $false }
+}
+if ($browser) {
+  $b = $browser.ToLower()
+  try {
+    if ($b -eq "chrome") {
+      # Enterprise MSI installs silently + reliably as SYSTEM
+      $msi = "$env:TEMP\chrome.msi"
+      if (Get-File "https://dl.google.com/tag/s/dl/chrome/install/googlechromestandaloneenterprise64.msi" $msi) {
+        Start-Process msiexec.exe -ArgumentList "/i","`"$msi`"","/qn","/norestart" -Wait
+      }
+    } elseif ($b -eq "firefox") {
+      $f = "$env:TEMP\ff.exe"
+      if (Get-File "https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US" $f) { Start-Process $f -ArgumentList "/S" -Wait }
+    } elseif ($b -eq "brave") {
+      $f = "$env:TEMP\brave.exe"
+      if (Get-File "https://laptop-updates.brave.com/latest/winx64" $f) { Start-Process $f -ArgumentList "/silent","/install" -Wait }
+    } elseif ($b -eq "edge") {
+      $f = "$env:TEMP\edge.msi"
+      if (Get-File "https://go.microsoft.com/fwlink/?linkid=2093437" $f) { Start-Process msiexec.exe -ArgumentList "/i","`"$f`"","/qn","/norestart" -Wait }
+    }
+    Report "apps" "Installed $browser"
+  } catch {}
+}
 
 # ------------------------------------------------------------------------ done
 Report "done" "Setup complete - your server is ready" "online" @{ username=$user; password=$pw; port=$port }

@@ -171,7 +171,8 @@ async function syncCommand(showToast) {
       const setIf = (id, val) => { const el = $("#" + id); if (el && el !== active) el.value = val; };
       setIf("remotePort", res.config.remotePort);
       if (!$("#userRandom").checked) setIf("username", res.config.username);
-      setIf("password", res.config.password);
+      // password is intentionally NOT pre-filled — the real (random) password
+      // appears in the deployment card once the server runs the command.
     }
     if (showToast) toast("Command updated");
     renderDeployments();
@@ -314,7 +315,7 @@ async function renderDeployments() {
         <div class="kv"><div class="k">Server IP</div><div class="v">${ip ? esc(ip) + cp(ip) : '<span class="hint" style="margin:0">pending…</span>'}</div></div>
         <div class="kv"><div class="k">Port</div><div class="v">${esc(c.remotePort)}${cp(c.remotePort)}</div></div>
         <div class="kv"><div class="k">Username</div><div class="v">${esc(c.username)}${cp(c.username)}</div></div>
-        <div class="kv"><div class="k">Password</div><div class="v">${esc(c.password)}${cp(c.password)}</div></div>
+        <div class="kv"><div class="k">Password</div><div class="v">${c.password ? esc(c.password) + cp(c.password) : '<span class="hint" style="margin:0">pending…</span>'}</div></div>
       </div>
       <div class="stages">${stages}</div>
       ${done && ip ? `<div class="rdp-note">✓ Ready. Connect via ${/^(win|ws)/.test(c.osImage) ? "Remote Desktop (RDP)" : "SSH"} to <b>${esc(ip)}:${esc(c.remotePort)}</b> as <b>${esc(c.username)}</b>.</div>` : ""}

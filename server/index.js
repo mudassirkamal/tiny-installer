@@ -293,6 +293,20 @@ async function handleApi(req, res, pathname) {
     return send(res, 200, { ok: true, token: d.token });
   }
 
+  // First-boot agent fetches the intended config (port/username) for its own IP,
+  // so a dd/golden clone honours the port the operator chose in the panel.
+  if (pathname === "/api/deploy-config-by-ip" && method === "GET") {
+    const ip = (url.parse(req.url, true).query.ip || "").toString();
+    if (!ip) return send(res, 400, { error: "ip required" });
+    const d = db.deployments
+      .filter((x) => x.serverIp === ip && ["running", "installing", "rebooting", "online"].includes(x.status))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    if (!d) return send(res, 404, { error: "no matching in-progress deployment for that IP" });
+    const gf = d.config.getFile;
+    const browser = (gf && gf.id) ? gf.id : "";   // "" = install nothing
+    return send(res, 200, { port: d.config.remotePort || 22, username: d.config.username || "administrator", browser });
+  }
+
   // First-boot agent (on a fast/golden-image deploy) reports the credentials it
   // generated on the machine itself. Token in the path is the credential.
   const mReport = pathname.match(/^\/api\/deploy\/([\w-]+)\/report$/);
@@ -325,6 +339,10 @@ async function handleApi(req, res, pathname) {
     // Refresh live status on-demand (works even where background jobs are frozen).
     await probeOne(d, { fast: true }).catch(() => {});
     const meta = OS_IMAGES.find((o) => o.id === d.config.osImage) || {};
+    // For a dd/golden deploy the real password is set by the first-boot agent;
+    // hide it until the agent has reported (status online) so we never show a
+    // stale/wrong one.
+    const ddPending = meta.method === "dd" && d.status !== "online";
     return send(res, 200, {
       token: d.token,
       status: d.status,
@@ -333,7 +351,7 @@ async function handleApi(req, res, pathname) {
       serverIp: d.serverIp || null,
       port: d.config.remotePort,
       username: d.config.username,
-      password: d.config.password,
+      password: ddPending ? null : d.config.password,
       logs: d.logs,
       installLog: d.installLog || "",
       postInstall: buildPostInstall(d),
@@ -389,12 +407,17 @@ async function handleApi(req, res, pathname) {
     return send(res, 200, {
       deployments: db.deployments
         .filter((d) => d.userId === user.id)
-        .map((d) => ({
-          token: d.token, status: d.status, config: d.config,
-          serverIp: d.serverIp || null, updatedAt: d.updatedAt,
-          createdAt: d.createdAt, logs: d.logs,
-          postInstall: buildPostInstall(d),
-        }))
+        .map((d) => {
+          const meta = OS_IMAGES.find((o) => o.id === d.config.osImage) || {};
+          const ddPending = meta.method === "dd" && d.status !== "online";
+          const config = ddPending ? { ...d.config, password: null } : d.config;
+          return {
+            token: d.token, status: d.status, config,
+            serverIp: d.serverIp || null, updatedAt: d.updatedAt,
+            createdAt: d.createdAt, logs: d.logs,
+            postInstall: buildPostInstall(d),
+          };
+        })
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
     });
   }
