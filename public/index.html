@@ -32,6 +32,10 @@
       <label>Access key</label>
       <input id="authKey" type="password" placeholder="Enter your access key" autocomplete="off">
     </div>
+    <div class="field" id="twofaField" style="display:none">
+      <label>2FA code</label>
+      <input id="authCode" type="text" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code">
+    </div>
     <p class="auth-err" id="authErr"></p>
     <button class="btn brand" id="authBtn" style="width:100%;justify-content:center;padding:12px">Unlock panel</button>
     <p class="auth-switch">One key · your account · no limits.</p>

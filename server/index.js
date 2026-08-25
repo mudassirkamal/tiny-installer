@@ -181,6 +181,33 @@ function rateLimit(key, max, windowMs) {
   return arr.length <= max;
 }
 
+// ---- TOTP 2FA (RFC 6238, zero-dependency) ---------------------------------
+function base32Decode(s) {
+  const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  s = String(s || "").toUpperCase().replace(/=+$/, "").replace(/\s/g, "");
+  let bits = ""; const out = [];
+  for (const c of s) { const v = A.indexOf(c); if (v < 0) continue; bits += v.toString(2).padStart(5, "0"); }
+  for (let i = 0; i + 8 <= bits.length; i += 8) out.push(parseInt(bits.slice(i, i + 8), 2));
+  return Buffer.from(out);
+}
+function totpAt(secret, timeMs, step = 30, digits = 6) {
+  const key = base32Decode(secret);
+  let counter = Math.floor(timeMs / 1000 / step);
+  const buf = Buffer.alloc(8);
+  for (let i = 7; i >= 0; i--) { buf[i] = counter & 0xff; counter = Math.floor(counter / 256); }
+  const h = crypto.createHmac("sha1", key).update(buf).digest();
+  const o = h[h.length - 1] & 0xf;
+  const num = ((h[o] & 0x7f) << 24 | (h[o + 1] & 0xff) << 16 | (h[o + 2] & 0xff) << 8 | (h[o + 3] & 0xff)) % (10 ** digits);
+  return num.toString().padStart(digits, "0");
+}
+function verifyTotp(secret, code) {
+  code = String(code || "").trim();
+  if (!/^\d{6}$/.test(code)) return false;
+  const now = Date.now();
+  for (const d of [-1, 0, 1]) if (crypto.timingSafeEqual(Buffer.from(totpAt(secret, now + d * 30000)), Buffer.from(code))) return true;
+  return false;
+}
+
 // ---- API ------------------------------------------------------------------
 async function handleApi(req, res, pathname) {
   const method = req.method;
@@ -239,12 +266,18 @@ async function handleApi(req, res, pathname) {
     // brute-force protection: max 8 attempts per IP per 5 minutes
     if (!rateLimit("login:" + clientIp(req), 8, 5 * 60 * 1000))
       return send(res, 429, { error: "Too many attempts. Wait a few minutes and try again." });
-    const { key } = await readBody(req);
+    const { key, code } = await readBody(req);
     const want = process.env.TI_ACCESS_KEY || "fomze-owner-change-me";
     // constant-time-ish compare (avoid timing leaks on length/prefix)
     const a = Buffer.from(String(key || "")), b = Buffer.from(want);
     const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
     if (!ok) return send(res, 401, { error: "Invalid access key." });
+    // second factor: if TI_TOTP_SECRET is set, require a valid 6-digit code
+    const totpSecret = process.env.TI_TOTP_SECRET || "";
+    if (totpSecret) {
+      if (!code) return send(res, 401, { error: "Enter your 2FA code.", need2fa: true });
+      if (!verifyTotp(totpSecret, code)) return send(res, 401, { error: "Invalid 2FA code.", need2fa: true });
+    }
     let user = db.users.find((u) => u.owner);
     if (!user) {
       user = {

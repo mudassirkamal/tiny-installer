@@ -37,13 +37,18 @@ document.querySelectorAll(".nav-links a").forEach((a) => {
 
 $("#authBtn").onclick = async () => {
   const key = $("#authKey").value.trim();
+  const code = ($("#authCode") && $("#authCode").value.trim()) || "";
   $("#authErr").textContent = "";
   try {
-    const { user } = await api("/api/login-key", { method: "POST", body: { key } });
+    const { user } = await api("/api/login-key", { method: "POST", body: { key, code } });
     ME = user; await boot();
-  } catch (e) { $("#authErr").textContent = e.message; }
+  } catch (e) {
+    if (/2fa/i.test(e.message)) { $("#twofaField").style.display = ""; if ($("#authCode")) $("#authCode").focus(); }
+    $("#authErr").textContent = e.message;
+  }
 };
 $("#authKey").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#authBtn").click(); });
+if ($("#authCode")) $("#authCode").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#authBtn").click(); });
 
 $("#logoutBtn").onclick = async () => { await api("/api/logout", { method: "POST" }); location.reload(); };
 
