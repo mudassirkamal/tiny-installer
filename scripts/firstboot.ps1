@@ -82,6 +82,24 @@ Restart-Service TermService -Force -ErrorAction SilentlyContinue
 # tell the panel the real credentials right away (so it shows the correct password + port)
 Report "account" "Created $user account and enabled Remote Desktop on port $port" "installing" @{ username=$user; password=$pw; port=$port }
 
+# ------------------------------------------------- bake a password-reset watcher
+# A boot task that applies C:\ti-reset\newpass.txt if present, so the password can
+# be reset later just by dropping that file from the provider's Rescue System
+# (reliable - it runs inside Windows via net user, no offline SAM editing).
+New-Item -ItemType Directory -Force -Path "C:\ti-agent" | Out-Null
+$watch = @"
+`$acct = "$user"
+`$f = "C:\ti-reset\newpass.txt"
+if (Test-Path `$f) {
+  try { `$p = (Get-Content `$f -Raw).Trim() } catch { `$p = "" }
+  if (`$p) { cmd /c "net user `"`$acct`" `"`$p`""; cmd /c "net user `"`$acct`" /active:yes" }
+  Remove-Item `$f -Force -ErrorAction SilentlyContinue
+  Remove-Item "C:\ti-reset" -Force -Recurse -ErrorAction SilentlyContinue
+}
+"@
+Set-Content -Path "C:\ti-agent\reset-watch.ps1" -Value $watch -Encoding ASCII
+schtasks /create /tn "TIResetWatch" /tr "powershell -NoProfile -ExecutionPolicy Bypass -File C:\ti-agent\reset-watch.ps1" /sc onstart /ru SYSTEM /rl HIGHEST /f | Out-Null
+
 # ------------------------------------------------- performance policies + tweaks
 try { powercfg /setactive SCHEME_MIN } catch {}
 powercfg /change standby-timeout-ac 0 2>$null

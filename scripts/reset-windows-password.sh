@@ -80,82 +80,28 @@ if [ -z "$USER" ]; then
   exit 0
 fi
 
-# --- always clear + enable the account (works with just chntpw) ---
+# --- PRIMARY (reliable on Fomze images): drop the reset file that the baked
+#     TIResetWatch task applies inside Windows on next boot via `net user`. ---
+WATCHER=0
+if [ -n "$PASSWORD" ]; then
+  if [ -d "$MNT/ti-agent" ] || [ -f "$MNT/ti-agent/reset-watch.ps1" ]; then WATCHER=1; fi
+  mkdir -p "$MNT/ti-reset" 2>/dev/null || true
+  printf '%s' "$PASSWORD" > "$MNT/ti-reset/newpass.txt" 2>/dev/null && say "${c_g}Queued new password for the on-boot reset watcher.${c_0}" || say "${c_y}Could not write the reset file.${c_0}"
+fi
+
+# --- ALSO clear the SAM password (so non-Fomze images log in blank, and Fomze
+#     images are unlocked until the watcher sets the new password). ---
 say "${c_c}Clearing password for '$USER'...${c_0}"
 printf '%s' $'1\n2\nq\ny\n' | chntpw -u "$USER" "$SAMDIR/SAM" >/tmp/chntpw.log 2>&1 || true
-grep -qi "written\|hive" /tmp/chntpw.log || { cat /tmp/chntpw.log; die "chntpw did not confirm a write."; }
-say "${c_g}Password cleared + account enabled.${c_0}"
+grep -qi "written\|hive" /tmp/chntpw.log && say "${c_g}Password cleared + account enabled.${c_0}" || say "${c_y}chntpw did not confirm a write (the watcher file still applies on Fomze images).${c_0}"
 
-# --- one-command mode: arm auto set-password (needs hivexregedit) ---
-ARMED=0
-if [ -n "$PASSWORD" ] && [ "$HAVE_HIVEX" = "1" ]; then
-  SOFTWARE="$SAMDIR/SOFTWARE"; SYSTEM="$SAMDIR/SYSTEM"
-  if [ -f "$SOFTWARE" ]; then
-    say "${c_c}Arming auto set-password on next boot...${c_0}"
-
-    # read the computer name (autologon needs DefaultDomainName = machine name)
-    CNAME=""
-    for cs in ControlSet001 ControlSet002 CurrentControlSet; do
-      CNAME=$(hivexget "$SYSTEM" "$cs\\Control\\ComputerName\\ComputerName" ComputerName 2>/dev/null) && [ -n "$CNAME" ] && break
-    done
-    [ -n "$CNAME" ] || CNAME="."
-
-    # self-logging batch: proves it ran, sets the password, then removes autologon
-    W='HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
-    {
-      printf '@echo off\r\n'
-      printf 'echo [%%date%% %%time%%] reset running for %s > "%%SystemDrive%%\\resetpw.log"\r\n' "$USER"
-      printf 'net user "%s" "%s" >> "%%SystemDrive%%\\resetpw.log" 2>&1\r\n' "$USER" "$PASSWORD"
-      printf 'echo net-user-exit=%%errorlevel%% >> "%%SystemDrive%%\\resetpw.log"\r\n'
-      printf 'reg delete "%s" /v AutoAdminLogon /f\r\n' "$W"
-      printf 'reg delete "%s" /v DefaultPassword /f\r\n' "$W"
-      printf 'reg delete "%s" /v ForceAutoLogon /f\r\n' "$W"
-      printf 'reg delete "%s" /v AutoLogonCount /f\r\n' "$W"
-      printf 'del "%%~f0"\r\n'
-    } > "$MNT/resetpw.cmd"
-    [ -s "$MNT/resetpw.cmd" ] || { say "${c_y}Could not write C:\\resetpw.cmd; using VNC method.${c_0}"; ARMED=0; }
-
-    cat > /tmp/win.reg <<REG
-Windows Registry Editor Version 5.00
-
-[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon]
-"AutoAdminLogon"="1"
-"ForceAutoLogon"="1"
-"DefaultUserName"="$USER"
-"DefaultPassword"=""
-"DefaultDomainName"="$CNAME"
-"AutoLogonCount"=dword:00000001
-
-[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce]
-"AAResetPwd"="cmd.exe /c \"%SystemDrive%\\resetpw.cmd\""
-REG
-    if [ -s "$MNT/resetpw.cmd" ] && hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SOFTWARE' "$SOFTWARE" < /tmp/win.reg 2>/tmp/hive.log; then
-      # verify the key values actually landed in the hive
-      V=$(hivexget "$SOFTWARE" 'Microsoft\Windows NT\CurrentVersion\Winlogon' AutoAdminLogon 2>/dev/null)
-      R=$(hivexget "$SOFTWARE" 'Microsoft\Windows\CurrentVersion\RunOnce' AAResetPwd 2>/dev/null)
-      if [ "$V" = "1" ] && [ -n "$R" ]; then ARMED=1; else say "${c_y}Verify failed (AutoAdminLogon='$V'); using VNC method.${c_0}"; fi
-    else
-      say "${c_y}Hive write failed; using VNC method.${c_0}"; sed 's/^/     /' /tmp/hive.log 2>/dev/null
-    fi
-  fi
-elif [ -n "$PASSWORD" ] && [ "$HAVE_HIVEX" = "0" ]; then
-  say "${c_y}'hivexregedit' not available; use the VNC method below.${c_0}"
-fi
-
-if [ "$ARMED" = "1" ]; then
-  sync; umount "$MNT" 2>/dev/null || true
-  printf '\n  %sArmed & verified.%s Computer: %s. All data intact. Now:\n' "$c_g" "$c_0" "$CNAME"
-  printf '   1. Contabo panel: turn OFF Rescue System and reboot into Windows.\n'
-  printf '   2. Wait ~2-3 minutes (it auto-logs in once and sets the password itself).\n'
-  printf '   3. RDP in as %s%s%s with:  %s%s%s\n' "$c_c" "$USER" "$c_0" "$c_c" "$PASSWORD" "$c_0"
-  printf '  (If it fails, VNC in and check C:\\resetpw.log to see what happened.)\n'
-  exit 0
-fi
-rm -f "$MNT/resetpw.cmd" 2>/dev/null || true
-
-# --- clear-only fallback: log in blank via VNC, then set a password ---
 sync; umount "$MNT" 2>/dev/null || true
-printf '\n  %sDone.%s All data intact. Next:\n' "$c_g" "$c_0"
-printf '   1. Contabo panel: turn OFF Rescue System, reboot into Windows.\n'
-printf '   2. Open the Contabo %sVNC%s console, pick %s%s%s, leave password %sEMPTY%s, Enter.\n' "$c_c" "$c_0" "$c_c" "$USER" "$c_0" "$c_c" "$c_0"
-printf '   3. Command Prompt:  %snet user %s NewClientPass123!%s\n' "$c_c" "$USER" "$c_0"
+printf '\n  %sDone.%s All data intact. Now: turn OFF Rescue System and reboot into Windows.\n' "$c_g" "$c_0"
+if [ -n "$PASSWORD" ] && [ "$WATCHER" = "1" ]; then
+  printf '   Fomze image detected: wait ~1 min, then RDP in as %s%s%s with:  %s%s%s\n' "$c_c" "$USER" "$c_0" "$c_c" "$PASSWORD" "$c_0"
+elif [ -n "$PASSWORD" ]; then
+  printf '   No Fomze watcher found. Either RDP with the new password after boot, or if that fails,\n'
+  printf '   VNC in with a %sblank%s password and run:  %snet user %s "%s"%s\n' "$c_c" "$c_0" "$c_c" "$USER" "$PASSWORD" "$c_0"
+else
+  printf '   VNC in, pick %s%s%s, leave password %sEMPTY%s, then set one:  %snet user %s NewPass123!%s\n' "$c_c" "$USER" "$c_0" "$c_c" "$c_0" "$c_c" "$USER" "$c_0"
+fi
