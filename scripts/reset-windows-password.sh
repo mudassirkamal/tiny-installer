@@ -80,28 +80,51 @@ if [ -z "$USER" ]; then
   exit 0
 fi
 
-# --- PRIMARY (reliable on Fomze images): drop the reset file that the baked
-#     TIResetWatch task applies inside Windows on next boot via `net user`. ---
-WATCHER=0
 if [ -n "$PASSWORD" ]; then
-  if [ -d "$MNT/ti-agent" ] || [ -f "$MNT/ti-agent/reset-watch.ps1" ]; then WATCHER=1; fi
-  mkdir -p "$MNT/ti-reset" 2>/dev/null || true
-  printf '%s' "$PASSWORD" > "$MNT/ti-reset/newpass.txt" 2>/dev/null && say "${c_g}Queued new password for the on-boot reset watcher.${c_0}" || say "${c_y}Could not write the reset file.${c_0}"
-fi
+  SYS32=$(dirname "$SAMDIR")   # <win>/Windows/System32 (correct case)
 
-# --- ALSO clear the SAM password (so non-Fomze images log in blank, and Fomze
-#     images are unlocked until the watcher sets the new password). ---
-say "${c_c}Clearing password for '$USER'...${c_0}"
-printf '%s' $'1\n2\nq\ny\n' | chntpw -u "$USER" "$SAMDIR/SAM" >/tmp/chntpw.log 2>&1 || true
-grep -qi "written\|hive" /tmp/chntpw.log && say "${c_g}Password cleared + account enabled.${c_0}" || say "${c_y}chntpw did not confirm a write (the watcher file still applies on Fomze images).${c_0}"
+  # (A) UNIVERSAL, RELIABLE: a Group Policy machine startup script. Windows runs
+  #     it as SYSTEM at the next boot and executes `net user` INSIDE Windows.
+  #     This is file-based (gpt.ini/scripts.ini/.bat) — not an offline SAM edit —
+  #     which is exactly why it works where chntpw does not. It's also the same
+  #     mechanism the reinstall engine itself uses for post-install scripts.
+  say "${c_c}Arming a boot-time password set (GPO startup script)...${c_0}"
+  {
+    printf '@echo off\r\n'
+    printf 'net user "%s" "%s"\r\n' "$USER" "$PASSWORD"
+    printf 'net user "%s" /active:yes\r\n' "$USER"
+    printf 'del "%%~f0"\r\n'
+  } > "$MNT/ti-resetpw.bat"
+  GP="$SYS32/GroupPolicy"; SCR="$GP/Machine/Scripts"; mkdir -p "$SCR"
+  # bump gpt.ini Version so the GPO client re-processes the startup scripts
+  oldv=$(grep -Ei '^Version=' "$GP/gpt.ini" 2>/dev/null | grep -Eo '[0-9]+' | head -1)
+  newv=$(( ${oldv:-0} + 1 ))
+  {
+    printf '[General]\r\n'
+    printf 'gPCFunctionalityVersion=2\r\n'
+    printf 'gPCMachineExtensionNames=[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-0000F87571E3}]\r\n'
+    printf 'Version=%s\r\n' "$newv"
+  } > "$GP/gpt.ini"
+  INI="$SCR/scripts.ini"
+  grep -qi '\[Startup\]' "$INI" 2>/dev/null || printf '[Startup]\r\n' > "$INI"
+  num=$(grep -Eoi '^[0-9]+CmdLine' "$INI" 2>/dev/null | grep -Eo '^[0-9]+' | sort -n | tail -1)
+  if [ -z "$num" ]; then num=0; else num=$((num+1)); fi
+  { printf '%sCmdLine=%%SystemDrive%%\\ti-resetpw.bat\r\n' "$num"; printf '%sParameters=\r\n' "$num"; } >> "$INI"
+  say "${c_g}GPO startup script armed (runs on next boot).${c_0}"
+
+  # (B) Fomze images also carry the TIResetWatch task -> drop its trigger file too
+  mkdir -p "$MNT/ti-reset" 2>/dev/null && printf '%s' "$PASSWORD" > "$MNT/ti-reset/newpass.txt" 2>/dev/null || true
+else
+  # No new password: just clear it (log in blank), best-effort via chntpw
+  say "${c_c}Clearing password for '$USER'...${c_0}"
+  printf '%s' $'1\n2\nq\ny\n' | chntpw -u "$USER" "$SAMDIR/SAM" >/tmp/chntpw.log 2>&1 || true
+  grep -qi "written\|hive" /tmp/chntpw.log && say "${c_g}Password cleared.${c_0}" || say "${c_y}chntpw did not confirm a write.${c_0}"
+fi
 
 sync; umount "$MNT" 2>/dev/null || true
 printf '\n  %sDone.%s All data intact. Now: turn OFF Rescue System and reboot into Windows.\n' "$c_g" "$c_0"
-if [ -n "$PASSWORD" ] && [ "$WATCHER" = "1" ]; then
-  printf '   Fomze image detected: wait ~1 min, then RDP in as %s%s%s with:  %s%s%s\n' "$c_c" "$USER" "$c_0" "$c_c" "$PASSWORD" "$c_0"
-elif [ -n "$PASSWORD" ]; then
-  printf '   No Fomze watcher found. Either RDP with the new password after boot, or if that fails,\n'
-  printf '   VNC in with a %sblank%s password and run:  %snet user %s "%s"%s\n' "$c_c" "$c_0" "$c_c" "$USER" "$PASSWORD" "$c_0"
+if [ -n "$PASSWORD" ]; then
+  printf '   Wait ~1-2 min for the boot script to run, then RDP in as %s%s%s with:  %s%s%s\n' "$c_c" "$USER" "$c_0" "$c_c" "$PASSWORD" "$c_0"
 else
   printf '   VNC in, pick %s%s%s, leave password %sEMPTY%s, then set one:  %snet user %s NewPass123!%s\n' "$c_c" "$USER" "$c_0" "$c_c" "$c_0" "$c_c" "$USER" "$c_0"
 fi
