@@ -277,6 +277,21 @@ $("#renewBtn").onclick = async () => {
 };
 $("#themeToggle").onclick = () => toast("Dark theme is the house style ✦");
 
+// ---------- Reset Windows password command (Documents) ----------
+function renderResetCmd() {
+  const el = document.getElementById("resetCmd"); if (!el) return;
+  const url = location.origin + "/reset-windows-password.sh";
+  const pass = (document.getElementById("resetPass") || {}).value || "";
+  let cmd = `(wget ${url} -O reset.sh || curl ${url} -o reset.sh) && bash reset.sh --user administrator`;
+  if (pass.trim()) cmd += ` --password '${pass.trim().replace(/'/g, "'\\''")}'`;
+  el.textContent = cmd;
+}
+if (document.getElementById("resetPass")) document.getElementById("resetPass").addEventListener("input", renderResetCmd);
+if (document.getElementById("copyReset")) document.getElementById("copyReset").onclick = async () => {
+  try { await navigator.clipboard.writeText(document.getElementById("resetCmd").textContent); toast("Reset command copied"); } catch {}
+};
+renderResetCmd();
+
 // ---------- Deployment tracking ----------
 const STAGES = ["start", "network", "download", "reinstall", "reboot", "done"];
 const cp = (val) => `<span class="cp" title="Copy" data-cp="${encodeURIComponent(val)}">

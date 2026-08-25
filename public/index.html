@@ -237,12 +237,35 @@
       <div class="panel">
         <p class="hint" style="margin-top:0">How to deploy Windows onto a Linux VPS with Fomze Installer.</p>
         <ol style="line-height:1.9;padding-left:20px;color:var(--muted)">
-          <li>On the <b>Home</b> tab pick a Windows version, set a port/username/password (or leave random), and click <b>Generate command</b>.</li>
+          <li>On the <b>Home</b> tab pick a Windows version and options (port, browser). The command is ready instantly.</li>
           <li>Copy the command and run it over SSH on your fresh <b>Linux</b> VPS (as root).</li>
-          <li>Watch progress on the <b>Live status</b> link — it shows the stages and a time-remaining estimate.</li>
-          <li>When it turns <b>Online</b>, connect over RDP to the IP:port with the username and password shown.</li>
+          <li>Watch progress on the <b>Live status</b> link — it shows the download bar, stages and time remaining.</li>
+          <li>When it turns <b>Online</b>, connect over RDP to the Address (IP:Port) with the username and password shown.</li>
         </ol>
         <p class="notice"><span>ⓘ</span> The command runs on your Linux VPS and reinstalls it as Windows — the disk is wiped, so only run it on a server you intend to convert.</p>
+      </div>
+
+      <!-- Reset Windows password tool -->
+      <div class="greet" style="margin-top:34px"><h1>Reset Windows password</h1></div>
+      <div class="panel">
+        <p class="hint" style="margin-top:0">Locked out of a Windows VPS? Boot it into your provider's <b>Rescue System</b> (Linux), then run the command below to reset the Administrator password offline.</p>
+        <div class="row">
+          <div class="lbl">New password <span class="sub">optional</span></div>
+          <div>
+            <input id="resetPass" type="text" placeholder="Leave blank to just clear the password">
+            <div class="hint">Blank = clears the password (log in with none, then set your own). Or type a new password to set it.</div>
+          </div>
+        </div>
+        <div style="margin-top:18px">
+          <h3 style="font-size:15px;font-weight:700;margin-bottom:12px">Run this in the Rescue System (as root):</h3>
+          <div class="cmdbox">
+            <code id="resetCmd">…</code>
+            <button class="copy" id="copyReset" title="Copy">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            </button>
+          </div>
+        </div>
+        <p class="notice"><span>ⓘ</span> It auto-detects the Windows disk, clears/sets the password, and re-enables login. Reboot back into Windows afterwards.</p>
       </div>
     </div>
   </div>
