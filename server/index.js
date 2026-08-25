@@ -3,6 +3,7 @@
 const http = require("http");
 const https = require("https");
 const net = require("net");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const url = require("url");
@@ -84,7 +85,13 @@ try {
 
 // ---- Helpers --------------------------------------------------------------
 function send(res, code, body, headers = {}) {
-  const h = { "Content-Type": "application/json", ...headers };
+  const h = {
+    "Content-Type": "application/json",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    ...headers,
+  };
   res.writeHead(code, h);
   if (Buffer.isBuffer(body) || typeof body === "string") res.end(body);
   else res.end(JSON.stringify(body));
@@ -155,6 +162,25 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+// ---- Security helpers -----------------------------------------------------
+function clientIp(req) {
+  return ((req.headers["x-forwarded-for"] || "").split(",")[0].trim())
+    || ((req.socket && req.socket.remoteAddress || "").replace(/^::ffff:/, "")) || "";
+}
+function isHttps(req) {
+  return (req.headers["x-forwarded-proto"] || "").split(",")[0] === "https";
+}
+// simple in-memory sliding-window rate limiter
+const _rl = new Map();
+function rateLimit(key, max, windowMs) {
+  const now = Date.now();
+  const arr = (_rl.get(key) || []).filter((t) => now - t < windowMs);
+  arr.push(now);
+  _rl.set(key, arr);
+  if (_rl.size > 5000) { for (const [k, v] of _rl) if (!v.some((t) => now - t < windowMs)) _rl.delete(k); }
+  return arr.length <= max;
+}
+
 // ---- API ------------------------------------------------------------------
 async function handleApi(req, res, pathname) {
   const method = req.method;
@@ -196,7 +222,7 @@ async function handleApi(req, res, pathname) {
     };
     db.users.push(user);
     save();
-    return login(res, user);
+    return login(res, user, req);
   }
 
   if (pathname === "/api/login" && method === "POST") {
@@ -204,16 +230,21 @@ async function handleApi(req, res, pathname) {
     const user = db.users.find((u) => u.email.toLowerCase() === String(email || "").toLowerCase());
     if (!user || !U.verifyPassword(password || "", user.salt, user.passHash))
       return send(res, 401, { error: "Invalid email or password." });
-    return login(res, user);
+    return login(res, user, req);
   }
 
   // Access-key login: one secret key = your unlimited owner account.
   // Set TI_ACCESS_KEY in the host environment; this is the only credential.
   if (pathname === "/api/login-key" && method === "POST") {
+    // brute-force protection: max 8 attempts per IP per 5 minutes
+    if (!rateLimit("login:" + clientIp(req), 8, 5 * 60 * 1000))
+      return send(res, 429, { error: "Too many attempts. Wait a few minutes and try again." });
     const { key } = await readBody(req);
     const want = process.env.TI_ACCESS_KEY || "fomze-owner-change-me";
-    if (!key || String(key) !== want)
-      return send(res, 401, { error: "Invalid access key." });
+    // constant-time-ish compare (avoid timing leaks on length/prefix)
+    const a = Buffer.from(String(key || "")), b = Buffer.from(want);
+    const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+    if (!ok) return send(res, 401, { error: "Invalid access key." });
     let user = db.users.find((u) => u.owner);
     if (!user) {
       user = {
@@ -230,7 +261,7 @@ async function handleApi(req, res, pathname) {
       user.expiresAt = daysFromNow(3650); user.maxProcesses = 999;
       save();
     }
-    return login(res, user);
+    return login(res, user, req);
   }
 
   if (pathname === "/api/logout" && method === "POST") {
@@ -270,6 +301,9 @@ async function handleApi(req, res, pathname) {
   if (pathname === "/api/report-by-ip" && method === "POST") {
     const { ip, username, password, port, stage, message, status } = await readBody(req);
     if (!ip) return send(res, 400, { error: "ip required" });
+    // Only the target itself may report for its own IP (blocks a third party from
+    // hijacking an in-progress deploy by posting a fake password for its IP).
+    if (clientIp(req) !== ip) return send(res, 403, { error: "ip does not match the request source" });
     // Match the newest in-progress deploy on that IP. Once a deploy is "online"
     // we still accept follow-up posts on it (agent posts several stages), so
     // include "online" in the match set.
@@ -299,6 +333,7 @@ async function handleApi(req, res, pathname) {
   if (pathname === "/api/deploy-config-by-ip" && method === "GET") {
     const ip = (url.parse(req.url, true).query.ip || "").toString();
     if (!ip) return send(res, 400, { error: "ip required" });
+    if (clientIp(req) !== ip) return send(res, 403, { error: "ip does not match the request source" });
     const d = db.deployments
       .filter((x) => x.serverIp === ip && ["running", "installing", "rebooting", "online"].includes(x.status))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
@@ -448,12 +483,13 @@ async function handleApi(req, res, pathname) {
   return send(res, 404, { error: "No such endpoint." });
 }
 
-function login(res, user) {
+function login(res, user, req) {
   const token = U.signSession(user.id);
   db.sessions.push({ token, userId: user.id, createdAt: new Date().toISOString() });
   save();
+  const secure = (req && isHttps(req)) ? " Secure;" : "";
   return send(res, 200, { user: publicUser(user) }, {
-    "Set-Cookie": `ti_session=${token}; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax`,
+    "Set-Cookie": `ti_session=${token}; Path=/; Max-Age=604800; HttpOnly;${secure} SameSite=Lax`,
   });
 }
 
