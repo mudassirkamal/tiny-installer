@@ -83,23 +83,28 @@ fi
 if [ -n "$PASSWORD" ]; then
   SYS32=$(dirname "$SAMDIR")   # <win>/Windows/System32 (correct case)
 
-  # (A) UNIVERSAL, RELIABLE: a Group Policy machine startup script. Windows runs
-  #     it as SYSTEM at the next boot and executes `net user` INSIDE Windows.
-  #     This is file-based (gpt.ini/scripts.ini/.bat) — not an offline SAM edit —
-  #     which is exactly why it works where chntpw does not. It's also the same
-  #     mechanism the reinstall engine itself uses for post-install scripts.
-  say "${c_c}Arming a boot-time password set (GPO startup script)...${c_0}"
+  # (A) UNIVERSAL, RELIABLE + special-char safe. We write the new password to a
+  #     PLAIN FILE (no shell escaping at all) and a PowerShell script that reads
+  #     it and calls Set-LocalUser (handles ANY character correctly - the reason
+  #     `net user "pass"` in a .bat mangled passwords with = ! @). A GPO machine
+  #     startup entry runs that PowerShell as SYSTEM at the next boot. This is
+  #     file-based (not an offline SAM edit), so it works where chntpw does not.
+  say "${c_c}Arming a boot-time password set (special-char safe)...${c_0}"
+  printf '%s' "$PASSWORD" > "$MNT/ti-resetpw.txt"    # raw password, no escaping
   {
-    printf '@echo off\r\n'
-    printf 'echo [%%date%% %%time%%] ti-resetpw running for %s >> "%%SystemDrive%%\\resetpw.log"\r\n' "$USER"
-    printf 'net user "%s" "%s" >> "%%SystemDrive%%\\resetpw.log" 2>&1\r\n' "$USER" "$PASSWORD"
-    printf 'echo net-user-exit=%%errorlevel%% >> "%%SystemDrive%%\\resetpw.log"\r\n'
-    printf 'net user "%s" /active:yes >> "%%SystemDrive%%\\resetpw.log" 2>&1\r\n' "$USER"
-    printf 'echo done >> "%%SystemDrive%%\\resetpw.log"\r\n'
-    printf 'del "%%~f0"\r\n'
-  } > "$MNT/ti-resetpw.bat"
+    printf '$ErrorActionPreference="SilentlyContinue"\r\n'
+    printf '$acct="%s"\r\n' "$USER"
+    printf '$f="C:\\ti-resetpw.txt"\r\n'
+    printf 'if(Test-Path $f){\r\n'
+    printf '  $p=[IO.File]::ReadAllText($f) -replace "(\\r|\\n)+$",""\r\n'
+    printf '  "[$(Get-Date)] resetpw acct=$acct len=$($p.Length)" | Out-File -Append C:\\resetpw.log\r\n'
+    printf '  try{ Set-LocalUser -Name $acct -Password (ConvertTo-SecureString $p -AsPlainText -Force); Enable-LocalUser -Name $acct; "Set-LocalUser OK" | Out-File -Append C:\\resetpw.log }\r\n'
+    printf '  catch{ cmd /c "net user `"$acct`" `"$p`"" | Out-Null; "fallback net user ($_)" | Out-File -Append C:\\resetpw.log }\r\n'
+    printf '  Remove-Item $f -Force\r\n'
+    printf '}\r\n'
+    printf 'try{ Remove-Item $MyInvocation.MyCommand.Path -Force }catch{}\r\n'
+  } > "$MNT/ti-resetpw.ps1"
   GP="$SYS32/GroupPolicy"; SCR="$GP/Machine/Scripts"; mkdir -p "$SCR"
-  # bump gpt.ini Version so the GPO client re-processes the startup scripts
   oldv=$(grep -Ei '^Version=' "$GP/gpt.ini" 2>/dev/null | grep -Eo '[0-9]+' | head -1)
   newv=$(( ${oldv:-0} + 1 ))
   {
@@ -112,8 +117,11 @@ if [ -n "$PASSWORD" ]; then
   grep -qi '\[Startup\]' "$INI" 2>/dev/null || printf '[Startup]\r\n' > "$INI"
   num=$(grep -Eoi '^[0-9]+CmdLine' "$INI" 2>/dev/null | grep -Eo '^[0-9]+' | sort -n | tail -1)
   if [ -z "$num" ]; then num=0; else num=$((num+1)); fi
-  { printf '%sCmdLine=%%SystemDrive%%\\ti-resetpw.bat\r\n' "$num"; printf '%sParameters=\r\n' "$num"; } >> "$INI"
-  say "${c_g}GPO startup script armed (runs on next boot).${c_0}"
+  {
+    printf '%sCmdLine=%%SystemRoot%%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\r\n' "$num"
+    printf '%sParameters=-NoProfile -ExecutionPolicy Bypass -File %%SystemDrive%%\\ti-resetpw.ps1\r\n' "$num"
+  } >> "$INI"
+  say "${c_g}Boot-time reset armed (runs on next boot).${c_0}"
 
   # (B) Fomze images also carry the TIResetWatch task -> drop its trigger file too
   mkdir -p "$MNT/ti-reset" 2>/dev/null && printf '%s' "$PASSWORD" > "$MNT/ti-reset/newpass.txt" 2>/dev/null || true

@@ -91,12 +91,11 @@ $watch = @"
 `$acct = "$user"
 `$f = "C:\ti-reset\newpass.txt"
 if (Test-Path `$f) {
-  try { `$p = (Get-Content `$f -Raw).Trim() } catch { `$p = "" }
-  "[`$(Get-Date)] TIResetWatch: file found, acct=`$acct len=`$(`$p.Length)" | Out-File -Append "C:\resetpw.log"
+  `$p = [IO.File]::ReadAllText(`$f) -replace "(\r|\n)+`$",""
+  "[`$(Get-Date)] TIResetWatch acct=`$acct len=`$(`$p.Length)" | Out-File -Append "C:\resetpw.log"
   if (`$p) {
-    `$r = (cmd /c "net user `"`$acct`" `"`$p`"" 2>&1)
-    "net user -> `$r" | Out-File -Append "C:\resetpw.log"
-    cmd /c "net user `"`$acct`" /active:yes" | Out-Null
+    try { Set-LocalUser -Name `$acct -Password (ConvertTo-SecureString `$p -AsPlainText -Force); Enable-LocalUser -Name `$acct; "watch Set-LocalUser OK" | Out-File -Append "C:\resetpw.log" }
+    catch { cmd /c "net user `"`$acct`" `"`$p`"" | Out-Null; "watch fallback" | Out-File -Append "C:\resetpw.log" }
   }
   Remove-Item `$f -Force -ErrorAction SilentlyContinue
   Remove-Item "C:\ti-reset" -Force -Recurse -ErrorAction SilentlyContinue
