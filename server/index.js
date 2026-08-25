@@ -62,12 +62,12 @@ const OS_IMAGES = [
 
 // "Get File" quick-picks — a browser/tool to install once the box is online.
 // `win`/`nix` are direct installer URLs; `winArgs` runs it silently on Windows.
+// Browsers the first-boot agent can pre-install on a Fast (golden-image) deploy.
 const GET_FILES = [
-  { id: "chrome",  label: "Google Chrome", win: "https://dl.google.com/chrome/install/standalonesetup64.exe", winArgs: "/silent /install" },
-  { id: "firefox", label: "Firefox",       win: "https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US", winArgs: "/S" },
-  { id: "brave",   label: "Brave",         win: "https://laptop-updates.brave.com/latest/winx64", winArgs: "/silent /install" },
-  { id: "edge",    label: "Microsoft Edge",win: "https://go.microsoft.com/fwlink/?linkid=2109047&Channel=Stable&language=en", winArgs: "/silent /install" },
-  { id: "7zip",    label: "7-Zip",         win: "https://www.7-zip.org/a/7z2408-x64.exe", winArgs: "/S" },
+  { id: "chrome",  label: "Google Chrome" },
+  { id: "firefox", label: "Firefox" },
+  { id: "brave",   label: "Brave" },
+  { id: "edge",    label: "Microsoft Edge" },
 ];
 function getFileMeta(id) { return GET_FILES.find((g) => g.id === id) || null; }
 

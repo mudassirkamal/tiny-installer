@@ -8,6 +8,13 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/css/style.css">
+<style>
+  .browser-chips{display:flex;gap:10px;flex-wrap:wrap}
+  .browser-chip{padding:9px 18px;border-radius:10px;border:1px solid var(--border);background:var(--card2,rgba(255,255,255,.03));
+    color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;transition:all .15s ease;font-family:inherit}
+  .browser-chip:hover{border-color:var(--brand);color:var(--fg)}
+  .browser-chip.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 16%,transparent);color:var(--fg)}
+</style>
 </head>
 <body>
 
@@ -117,11 +124,11 @@
         <div><input id="password" type="text" placeholder="Set initial password or leave empty for random"></div>
       </div>
       <div class="row">
-        <div class="lbl">Pre-install browser <span class="sub">optional</span></div>
+        <div class="lbl">Pre-install browser <span class="sub">Fast deploys</span></div>
         <div>
-          <div class="getfile" id="getFiles"></div>
-          <div class="hint">Pick a browser to be installed automatically once Windows is online. Leave unselected for none.</div>
-          <input id="getFileUrl" type="text" placeholder="…or paste a direct .exe link to install instead" style="margin-top:14px">
+          <div class="browser-chips" id="getFiles"></div>
+          <div class="hint">Installed automatically on first boot (Fast ⚡ images). Choose “None” to skip.</div>
+          <input id="getFileUrl" type="hidden">
         </div>
       </div>
       <div class="row">

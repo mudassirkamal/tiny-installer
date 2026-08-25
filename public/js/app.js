@@ -69,18 +69,20 @@ function renderReference() {
   const node = $("#node"); node.innerHTML = "";
   REF.nodes.forEach((n) => { const opt = document.createElement("option"); opt.value = n.id; opt.textContent = n.label; node.appendChild(opt); });
   const gf = $("#getFiles"); gf.innerHTML = "";
-  REF.getFiles.forEach((f) => {
-    const el = document.createElement("div");
-    el.className = "gf"; el.dataset.id = f.id; el.title = f.label;
-    el.innerHTML = `<span class="ic">${GF_ICONS[f.id] || "📦"}</span>`;
+  const mkChip = (id, label, selected) => {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "browser-chip" + (selected ? " on" : "");
+    el.dataset.id = id; el.textContent = label;
     el.onclick = () => {
-      const was = el.classList.contains("on");
-      gf.querySelectorAll(".gf").forEach((x) => x.classList.remove("on")); // single-select
-      if (!was) el.classList.add("on");
+      gf.querySelectorAll(".browser-chip").forEach((x) => x.classList.remove("on"));
+      el.classList.add("on");
       scheduleSync();
     };
     gf.appendChild(el);
-  });
+  };
+  mkChip("", "None", true);                                  // default: install nothing
+  REF.getFiles.forEach((f) => mkChip(f.id, f.label, false));
   updateOsHint();
 }
 function updateOsHint() {
@@ -132,11 +134,12 @@ function renderAccount() {
 
 // ---------- Config collection ----------
 function collectConfig() {
-  const selGf = $("#getFiles .gf.on");
+  const selGf = $("#getFiles .browser-chip.on");
+  const gfId = selGf ? selGf.dataset.id : "";
   return {
     osImage: $("#osImage").value,
     imageUrl: $("#imageUrl").value.trim(),
-    getFile: selGf ? { id: selGf.dataset.id, url: $("#getFileUrl").value.trim() } : null,
+    getFile: gfId ? { id: gfId, url: $("#getFileUrl").value.trim() } : null,
     node: $("#node").value,
     remotePort: $("#remotePort").value ? Number($("#remotePort").value) : undefined,
     username: $("#username").value.trim(),
@@ -245,8 +248,9 @@ function applyProfile(cfg) {
   const a = cfg.advanced || {};
   ["force", "installGrub", "rescueEnv", "convertGpt", "randomUrl"].forEach((k) => { if ($("#" + k)) $("#" + k).checked = !!a[k]; });
   document.querySelectorAll("#modeSeg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === (a.mode || "auto")));
-  // get-file chip
-  document.querySelectorAll("#getFiles .gf").forEach((el) => el.classList.toggle("on", cfg.getFile && el.dataset.id === cfg.getFile.id));
+  // browser chip
+  const wantGf = (cfg.getFile && cfg.getFile.id) || "";
+  document.querySelectorAll("#getFiles .browser-chip").forEach((el) => el.classList.toggle("on", el.dataset.id === wantGf));
   $("#getFileUrl").value = (cfg.getFile && cfg.getFile.url) || "";
   scheduleSync();
 }
