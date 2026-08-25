@@ -622,6 +622,34 @@ const server = http.createServer(async (req, res) => {
       }
       return send(res, 404, { error: "not found" });
     }
+    // Serve operator-hosted golden images from data/images/ (streamed, with HTTP
+    // Range support so the reinstall dd engine can fetch/resume them reliably).
+    if (pathname.startsWith("/images/")) {
+      const name = pathname.slice("/images/".length);
+      if (!/^[\w.-]+$/.test(name) || name.includes("..")) return send(res, 400, { error: "bad name" });
+      const file = path.join(__dirname, "..", "data", "images", name);
+      return fs.stat(file, (err, st) => {
+        if (err || !st.isFile()) return send(res, 404, { error: "not found" });
+        const range = req.headers.range;
+        const type = "application/octet-stream";
+        if (range) {
+          const m = /bytes=(\d*)-(\d*)/.exec(range) || [];
+          let start = m[1] ? parseInt(m[1], 10) : 0;
+          let end = m[2] ? parseInt(m[2], 10) : st.size - 1;
+          if (isNaN(start) || isNaN(end) || start > end || end >= st.size) {
+            return send(res, 416, { error: "range not satisfiable" }, { "Content-Range": `bytes */${st.size}` });
+          }
+          res.writeHead(206, {
+            "Content-Type": type, "Accept-Ranges": "bytes",
+            "Content-Range": `bytes ${start}-${end}/${st.size}`,
+            "Content-Length": end - start + 1,
+          });
+          return fs.createReadStream(file, { start, end }).pipe(res);
+        }
+        res.writeHead(200, { "Content-Type": type, "Accept-Ranges": "bytes", "Content-Length": st.size });
+        return fs.createReadStream(file).pipe(res);
+      });
+    }
     // Shareable public live-status page: /d/<token>
     if (/^\/d\/[\w-]+$/.test(pathname)) {
       return fs.readFile(path.join(PUB, "status.html"), (e, buf) =>
