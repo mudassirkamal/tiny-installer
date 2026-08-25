@@ -91,8 +91,11 @@ if [ -n "$PASSWORD" ]; then
   say "${c_c}Arming a boot-time password set (GPO startup script)...${c_0}"
   {
     printf '@echo off\r\n'
-    printf 'net user "%s" "%s"\r\n' "$USER" "$PASSWORD"
-    printf 'net user "%s" /active:yes\r\n' "$USER"
+    printf 'echo [%%date%% %%time%%] ti-resetpw running for %s >> "%%SystemDrive%%\\resetpw.log"\r\n' "$USER"
+    printf 'net user "%s" "%s" >> "%%SystemDrive%%\\resetpw.log" 2>&1\r\n' "$USER" "$PASSWORD"
+    printf 'echo net-user-exit=%%errorlevel%% >> "%%SystemDrive%%\\resetpw.log"\r\n'
+    printf 'net user "%s" /active:yes >> "%%SystemDrive%%\\resetpw.log" 2>&1\r\n' "$USER"
+    printf 'echo done >> "%%SystemDrive%%\\resetpw.log"\r\n'
     printf 'del "%%~f0"\r\n'
   } > "$MNT/ti-resetpw.bat"
   GP="$SYS32/GroupPolicy"; SCR="$GP/Machine/Scripts"; mkdir -p "$SCR"

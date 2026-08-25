@@ -92,7 +92,12 @@ $watch = @"
 `$f = "C:\ti-reset\newpass.txt"
 if (Test-Path `$f) {
   try { `$p = (Get-Content `$f -Raw).Trim() } catch { `$p = "" }
-  if (`$p) { cmd /c "net user `"`$acct`" `"`$p`""; cmd /c "net user `"`$acct`" /active:yes" }
+  "[`$(Get-Date)] TIResetWatch: file found, acct=`$acct len=`$(`$p.Length)" | Out-File -Append "C:\resetpw.log"
+  if (`$p) {
+    `$r = (cmd /c "net user `"`$acct`" `"`$p`"" 2>&1)
+    "net user -> `$r" | Out-File -Append "C:\resetpw.log"
+    cmd /c "net user `"`$acct`" /active:yes" | Out-Null
+  }
   Remove-Item `$f -Force -ErrorAction SilentlyContinue
   Remove-Item "C:\ti-reset" -Force -Recurse -ErrorAction SilentlyContinue
 }
