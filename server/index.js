@@ -218,6 +218,11 @@ async function handleApi(req, res, pathname) {
     return send(res, 200, sh, { "Content-Type": "text/x-shellscript; charset=utf-8" });
   }
 
+  // Public: whether 2FA is required (so the login page can show the code field)
+  if (pathname === "/api/auth-info" && method === "GET") {
+    return send(res, 200, { twofa: !!process.env.TI_TOTP_SECRET });
+  }
+
   // Public reference data (trimmed — no internal ISO defaults)
   if (pathname === "/api/reference" && method === "GET") {
     const osImages = OS_IMAGES.map((o) => ({

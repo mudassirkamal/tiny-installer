@@ -159,7 +159,7 @@ footer{border-top:1px solid var(--border);margin-top:60px;padding:34px 22px;text
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 /* auth screen */
-.auth{min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(1000px 500px at 50% -10%,rgba(124,108,255,.16),transparent)}
+.auth{min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(1000px 500px at 50% -10%,rgba(255,106,0,.16),transparent)}
 .auth-card{width:min(420px,100%);background:var(--card);border:1px solid var(--border);border-radius:20px;padding:34px}
 .auth-card .logo{font-size:26px;text-align:center;margin-bottom:6px}
 .auth-card p.sub{color:var(--muted);text-align:center;margin:0 0 24px}
@@ -173,3 +173,30 @@ footer{border-top:1px solid var(--border);margin-top:60px;padding:34px 22px;text
   .row{grid-template-columns:1fr;gap:10px}
   .nav-links{display:none}
 }
+
+/* ================= Account dropdown (My Access) ================= */
+.acct-wrap{position:relative}
+.acct-menu{position:absolute;right:0;top:calc(100% + 8px);width:250px;background:var(--card);border:1px solid var(--border2);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.4);padding:8px;z-index:60}
+.acct-head{display:flex;align-items:center;gap:11px;padding:10px 8px 12px}
+.acct-avatar{width:38px;height:38px;border-radius:11px;background:var(--brandgrad);color:#fff;font-weight:800;display:grid;place-items:center;font-size:16px}
+.acct-name{font-weight:700;font-size:14px}
+.acct-sub{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.acct-rows{border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px 4px;margin-bottom:6px}
+.acct-row{display:flex;justify-content:space-between;font-size:13px;padding:4px 4px;color:var(--muted)}
+.acct-row b{color:var(--fg);font-weight:600}
+.acct-item{width:100%;display:flex;align-items:center;gap:10px;background:transparent;border:0;color:var(--fg);font-size:14px;font-weight:600;padding:10px 8px;border-radius:9px;text-align:left}
+.acct-item:hover{background:var(--card2)}
+.acct-item svg{width:17px;height:17px;opacity:.8}
+.acct-item.danger{color:var(--red)}
+.acct-item.danger:hover{background:rgba(239,68,68,.1)}
+
+/* ================= Light theme ================= */
+body.light{
+  --bg:#f5f6f8; --bg2:#eceef1; --card:#ffffff; --card2:#f3f4f6; --card3:#e8eaee;
+  --border:#e4e7ec; --border2:#d4d8df;
+  --fg:#171a1f; --muted:#5b616e; --faint:#8a909c;
+}
+body.light .nav{background:rgba(255,255,255,.86);border-bottom:1px solid var(--border)}
+body.light .acct-menu{box-shadow:0 18px 50px rgba(20,25,40,.16)}
+body.light .btn.brand,body.light .btn.green{color:#fff}
+body.light .badge{color:#04140a}

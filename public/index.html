@@ -54,12 +54,36 @@
         <a data-view="docs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Documents</a>
       </div>
       <div class="spacer"></div>
-      <button class="icon-ghost" id="themeToggle" title="Theme">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <button class="icon-ghost" id="themeToggle" title="Toggle light / dark">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
       </button>
-      <button class="btn" id="logoutBtn">My Access
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
-      </button>
+      <div class="acct-wrap">
+        <button class="btn" id="acctBtn">My Access
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="acct-menu hidden" id="acctMenu">
+          <div class="acct-head">
+            <div class="acct-avatar" id="mAvatar">F</div>
+            <div>
+              <div class="acct-name" id="mAcctName">Owner</div>
+              <div class="acct-sub" id="mAcctNo"># —</div>
+            </div>
+          </div>
+          <div class="acct-rows">
+            <div class="acct-row"><span>Plan</span><b id="mPlan">Personal</b></div>
+            <div class="acct-row"><span>Expiry</span><b id="mExpiry">—</b></div>
+            <div class="acct-row"><span>2FA</span><b id="m2fa">—</b></div>
+          </div>
+          <button class="acct-item" id="mThemeItem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/></svg>
+            <span id="mThemeLabel">Light theme</span>
+          </button>
+          <button class="acct-item danger" id="mLogout">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>
+            Logout
+          </button>
+        </div>
+      </div>
     </div>
   </nav>
 

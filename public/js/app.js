@@ -17,6 +17,7 @@ let ME = null;
 let cmdOS = "linux";
 let currentToken = null;
 let currentCommand = "";
+let TWOFA_ON = false;
 const GF_ICONS = { chrome: "🌐", firefox: "🦊", edge: "🌊", brave: "🦁", "7zip": "🗜️" };
 
 // ---------- Auth (single access key) ----------
@@ -50,7 +51,25 @@ $("#authBtn").onclick = async () => {
 $("#authKey").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#authBtn").click(); });
 if ($("#authCode")) $("#authCode").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#authBtn").click(); });
 
-$("#logoutBtn").onclick = async () => { await api("/api/logout", { method: "POST" }); location.reload(); };
+// ---------- Theme (dark / light, persisted) ----------
+function applyTheme(t) {
+  const light = t === "light";
+  document.body.classList.toggle("light", light);
+  const lbl = $("#mThemeLabel"); if (lbl) lbl.textContent = light ? "Dark theme" : "Light theme";
+}
+function toggleTheme() {
+  const next = document.body.classList.contains("light") ? "dark" : "light";
+  localStorage.setItem("ti-theme", next); applyTheme(next);
+}
+applyTheme(localStorage.getItem("ti-theme") || "dark");
+$("#themeToggle").onclick = toggleTheme;
+
+// ---------- Account dropdown (My Access) ----------
+const acctMenu = $("#acctMenu");
+$("#acctBtn").onclick = (e) => { e.stopPropagation(); acctMenu.classList.toggle("hidden"); };
+document.addEventListener("click", (e) => { if (!e.target.closest(".acct-wrap")) acctMenu.classList.add("hidden"); });
+$("#mThemeItem").onclick = toggleTheme;
+$("#mLogout").onclick = async () => { await api("/api/logout", { method: "POST" }); location.reload(); };
 
 // ---------- Boot ----------
 async function boot() {
@@ -108,6 +127,13 @@ function renderAccount() {
   $("#greetName").textContent = "Hi " + name;
   $("#accountNo").textContent = "# " + ME.accountNo;
   $("#planBadge").firstChild.textContent = ME.plan + " ";
+  // account dropdown ("My Access")
+  $("#mAcctName").textContent = name;
+  $("#mAcctNo").textContent = "# " + ME.accountNo;
+  $("#mAvatar").textContent = (name[0] || "F").toUpperCase();
+  $("#mPlan").textContent = ME.plan;
+  $("#mExpiry").textContent = ME.unlimited ? "No expiry" : new Date(ME.expiresAt).toISOString().slice(0, 10);
+  $("#m2fa").textContent = TWOFA_ON ? "On ✓" : "Off";
   if (ME.unlimited) {
     $("#expBar").style.width = "100%";
     $("#expDays").textContent = "No expiry";
@@ -280,7 +306,6 @@ $("#renewBtn").onclick = async () => {
   try { ME = (await api("/api/renew", { method: "POST" })).user; renderAccount(); toast("Renewed — tokens topped up, expiry extended"); }
   catch (e) { toast(e.message); }
 };
-$("#themeToggle").onclick = () => toast("Dark theme is the house style ✦");
 
 // Random remote port (10000–65535)
 if ($("#randPort")) $("#randPort").onclick = () => {
@@ -386,6 +411,12 @@ function startPolling() { renderDeployments(); clearInterval(pollTimer); pollTim
 
 // ---------- Init ----------
 (async () => {
+  // Is 2FA enabled? If so, reveal the code field on the login page up-front.
+  try {
+    const info = await api("/api/auth-info");
+    TWOFA_ON = !!info.twofa;
+    if (TWOFA_ON && $("#twofaField")) $("#twofaField").style.display = "";
+  } catch {}
   try { const { user } = await api("/api/me"); ME = user; await boot(); }
   catch { showAuth(); }
 })();
