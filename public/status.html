@@ -26,7 +26,7 @@
   .bar>i{display:block;height:100%;border-radius:99px;transition:width .6s ease}
   /* state colors */
   .s-ready .big-dot{background:var(--muted)} .s-ready .bar>i{background:var(--muted)}
-  .s-running .big-dot,.s-installing .big-dot{background:#5b8bff;animation:pulse 1.1s infinite} .s-running .bar>i,.s-installing .bar>i{background:#5b8bff}
+  .s-running .big-dot,.s-installing .big-dot{background:var(--brand);animation:pulse 1.1s infinite} .s-running .bar>i,.s-installing .bar>i{background:var(--brand)}
   .s-online .big-dot{background:var(--green);box-shadow:0 0 0 4px rgba(34,197,94,.25)} .s-online .bar>i{background:var(--green)}
   .s-failed .big-dot{background:var(--red)} .s-failed .bar>i{background:var(--red)}
   .s-online .big-status .label{color:#5be08a}
@@ -34,7 +34,7 @@
   .stages{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px}
   .stage{font-size:11px;padding:5px 10px;border-radius:8px;background:var(--card2);border:1px solid var(--border);color:var(--muted)}
   .stage.done{border-color:var(--green);color:#5be08a}
-  .stage.active{border-color:#5b8bff;color:#8fb0ff}
+  .stage.active{border-color:var(--brand);color:var(--brand2)}
   .conn{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:20px}
   .kv{background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:11px 13px}
   .kv .k{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
@@ -74,8 +74,7 @@
     <div class="stages" id="stages"></div>
 
     <div class="conn" id="conn" style="display:none">
-      <div class="kv"><div class="k">Server IP</div><div class="v" id="vIp">—</div></div>
-      <div class="kv"><div class="k">Port</div><div class="v" id="vPort">—</div></div>
+      <div class="kv"><div class="k">Address (IP : Port)</div><div class="v" id="vAddr">—</div></div>
       <div class="kv"><div class="k">Username</div><div class="v" id="vUser">—</div></div>
       <div class="kv"><div class="k">Password</div><div class="v" id="vPass">—</div></div>
     </div>
@@ -172,8 +171,8 @@ async function tick(){
   const showConn = d.serverIp || d.status!=="ready";
   $("#conn").style.display = showConn ? "" : "none";
   if(showConn){
-    setKv("#vIp", d.serverIp || "pending…", d.serverIp);
-    setKv("#vPort", d.port, d.port);
+    const addr = d.serverIp ? (d.serverIp + ":" + d.port) : "pending…";
+    setKv("#vAddr", addr, d.serverIp ? addr : "");
     setKv("#vUser", d.username, d.username);
     setKv("#vPass", d.password || "pending…", d.password);
   }

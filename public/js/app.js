@@ -316,8 +316,7 @@ async function renderDeployments() {
         <button class="dep-del" data-del="${d.token}" title="Delete this deployment" style="background:none;border:0;color:var(--faint);cursor:pointer;font-size:16px;padding:2px 6px;margin-left:8px">✕</button>
       </div>
       <div class="conn">
-        <div class="kv"><div class="k">Server IP</div><div class="v">${ip ? esc(ip) + cp(ip) : '<span class="hint" style="margin:0">pending…</span>'}</div></div>
-        <div class="kv"><div class="k">Port</div><div class="v">${esc(c.remotePort)}${cp(c.remotePort)}</div></div>
+        <div class="kv"><div class="k">Address (IP : Port)</div><div class="v">${ip ? esc(ip + ":" + c.remotePort) + cp(ip + ":" + c.remotePort) : '<span class="hint" style="margin:0">pending…</span>'}</div></div>
         <div class="kv"><div class="k">Username</div><div class="v">${esc(c.username)}${cp(c.username)}</div></div>
         <div class="kv"><div class="k">Password</div><div class="v">${c.password ? esc(c.password) + cp(c.password) : '<span class="hint" style="margin:0">pending…</span>'}</div></div>
       </div>

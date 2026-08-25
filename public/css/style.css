@@ -2,7 +2,7 @@
   --bg:#0b0b0e; --bg2:#111116; --card:#17171d; --card2:#1e1e26; --card3:#24242e;
   --border:#2a2a35; --border2:#34343f;
   --fg:#e9e9ef; --muted:#9a9aa8; --faint:#6b6b78;
-  --brand:#7c6cff; --brand2:#5b8bff; --brandgrad:linear-gradient(120deg,#7c6cff,#5b8bff);
+  --brand:#ff6a00; --brand2:#ff8a3d; --brandgrad:linear-gradient(120deg,#ff6a00,#ff9d4d);
   --green:#22c55e; --green2:#16a34a; --red:#ef4444; --amber:#f59e0b;
   --radius:14px;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -51,7 +51,7 @@ h1,h2,h3{margin:0}
 
 /* progress */
 .prog{height:8px;border-radius:99px;background:var(--card3);overflow:hidden}
-.prog>i{display:block;height:100%;background:var(--green);border-radius:99px}
+.prog>i{display:block;height:100%;background:var(--brandgrad);border-radius:99px}
 .prog.blue>i{background:var(--brand2)}
 .meta{display:flex;justify-content:space-between;margin-top:8px;color:var(--muted);font-size:13px}
 .meta b{color:var(--fg);font-weight:600}
@@ -62,7 +62,7 @@ input[type=text],input[type=password],input[type=email],input[type=number],selec
   padding:11px 13px;border-radius:11px;font-size:14px;outline:none;transition:.15s;font-family:inherit;
 }
 textarea{min-height:84px;resize:vertical;font-family:var(--mono);font-size:13px}
-input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(124,108,255,.15)}
+input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(255,106,0,.18)}
 .hint{color:var(--faint);font-size:12px;margin-top:7px}
 .inline{display:flex;align-items:center;gap:12px}
 
