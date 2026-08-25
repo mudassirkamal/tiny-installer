@@ -107,6 +107,9 @@ Set-Content -Path "C:\ti-agent\reset-watch.ps1" -Value $watch -Encoding ASCII
 schtasks /create /tn "TIResetWatch" /tr "powershell -NoProfile -ExecutionPolicy Bypass -File C:\ti-agent\reset-watch.ps1" /sc onstart /ru SYSTEM /rl HIGHEST /f | Out-Null
 
 # ------------------------------------------------- performance policies + tweaks
+# never lock the account from failed logins (internet brute-force bots would
+# otherwise lock the administrator out of an internet-facing VPS)
+cmd /c "net accounts /lockoutthreshold:0" | Out-Null
 try { powercfg /setactive SCHEME_MIN } catch {}
 powercfg /change standby-timeout-ac 0 2>$null
 powercfg /change monitor-timeout-ac 0 2>$null
@@ -152,6 +155,17 @@ try {
     reg load "HKU\DEF" "C:\Users\Default\NTUSER.DAT" 2>$null | Out-Null
     if ($LASTEXITCODE -eq 0) { SetWall "HKU\DEF"; reg unload "HKU\DEF" 2>$null | Out-Null }
   }
+} catch {}
+# Robust fallback: also force the wallpaper live at the next user logon (covers
+# profiles whose hive couldn't be edited offline - e.g. an already-active session
+# baked into the image). Re-applies each logon; harmless + keeps branding.
+try {
+  $setwp = @'
+Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class TIW { [DllImport("user32.dll",CharSet=CharSet.Auto)] public static extern int SystemParametersInfo(int a,int b,string c,int d); }'
+[TIW]::SystemParametersInfo(20,0,"C:\Windows\Web\Wallpaper\Fomze\wallpaper.jpg",3) | Out-Null
+'@
+  Set-Content -Path "C:\ti-agent\setwp.ps1" -Value $setwp -Encoding ASCII
+  schtasks /create /tn "TIWallpaper" /tr "powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\ti-agent\setwp.ps1" /sc onlogon /rl LIMITED /f | Out-Null
 } catch {}
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name RegisteredOrganization -Value $company -ErrorAction SilentlyContinue
 Report "brand" "Applied $company wallpaper and branding"
