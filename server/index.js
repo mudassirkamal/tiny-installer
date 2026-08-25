@@ -54,8 +54,8 @@ const OS_IMAGES = [
   // Only three Windows Server versions — this is all Fomze Installer deploys.
   { id: "ws2022-datacenter-eval", type: "windows", label: "Windows Server 2022 (Fast ⚡)", method: "dd",
     imageUrl: "https://panel.fomze.com/images/ws2022.img.gz", sizeGb: 20, cost: 1 },
-  { id: "ws2019-datacenter-eval", type: "windows", label: "Windows Server 2019", method: "reinstall",
-    imageName: "Windows Server 2019 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195167", sizeGb: 11, cost: 1 },
+  { id: "ws2019-datacenter-eval", type: "windows", label: "Windows Server 2019 (Fast ⚡)", method: "dd",
+    imageUrl: "https://panel.fomze.com/images/ws2019.img.gz", sizeGb: 20, cost: 1 },
   { id: "ws2016-datacenter-eval", type: "windows", label: "Windows Server 2016", method: "reinstall",
     imageName: "Windows Server 2016 SERVERDATACENTER", iso: "https://go.microsoft.com/fwlink/p/?LinkID=2195174", sizeGb: 12, cost: 1 },
 ];
