@@ -284,6 +284,18 @@ if ($("#randPort")) $("#randPort").onclick = () => {
   toast("Random port set");
 };
 
+// Strong random password generator (avoids look-alike chars, guarantees each class)
+function genPassword() {
+  const U = "ABCDEFGHJKLMNPQRSTUVWXYZ", L = "abcdefghijkmnpqrstuvwxyz", N = "23456789", S = "@#%+=!";
+  const pick = (s) => s[Math.floor(Math.random() * s.length)];
+  const all = U + L + N + S;
+  let p = [pick(U), pick(L), pick(N), pick(S)];
+  for (let i = 0; i < 10; i++) p.push(pick(all));
+  return p.sort(() => Math.random() - 0.5).join("");
+}
+if ($("#randPass")) $("#randPass").onclick = () => { $("#password").value = genPassword(); scheduleSync(); toast("Random password set"); };
+if ($("#randResetPass")) $("#randResetPass").onclick = () => { $("#resetPass").value = genPassword(); renderResetCmd(); toast("Random password set"); };
+
 // ---------- Reset Windows password command (Documents) ----------
 function renderResetCmd() {
   const el = document.getElementById("resetCmd"); if (!el) return;

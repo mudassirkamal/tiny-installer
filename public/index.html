@@ -130,7 +130,15 @@
       </div>
       <div class="row">
         <div class="lbl">Password</div>
-        <div><input id="password" type="text" placeholder="Set initial password or leave empty for random"></div>
+        <div>
+          <div class="inline" style="gap:10px;align-items:stretch">
+            <input id="password" type="text" placeholder="Set initial password or leave empty for random" style="flex:1">
+            <button class="btn ghost" id="randPass" type="button" title="Generate a strong random password">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
+              Random
+            </button>
+          </div>
+        </div>
       </div>
       <div class="row">
         <div class="lbl">Pre-install browser <span class="sub">Fast deploys</span></div>
@@ -261,8 +269,14 @@
         <div class="row">
           <div class="lbl">New password <span class="sub">optional</span></div>
           <div>
-            <input id="resetPass" type="text" placeholder="Leave blank to just clear the password">
-            <div class="hint">Blank = clears the password (log in with none, then set your own). Or type a new password to set it.</div>
+            <div class="inline" style="gap:10px;align-items:stretch">
+              <input id="resetPass" type="text" placeholder="Leave blank to just clear the password" style="flex:1">
+              <button class="btn ghost" id="randResetPass" type="button" title="Generate a strong random password">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
+                Random
+              </button>
+            </div>
+            <div class="hint">Blank = clears the password (log in with none, then set your own). Or type/generate a new password to set it.</div>
           </div>
         </div>
         <div style="margin-top:18px">
