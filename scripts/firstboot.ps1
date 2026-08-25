@@ -99,15 +99,13 @@ try {
       $dat = Join-Path $_.FullName "NTUSER.DAT"
       if (Test-Path $dat) {
         $tag = "TIW_" + $_.Name
-        if ((reg load "HKU\$tag" "$dat" 2>$null); $LASTEXITCODE -eq 0) {
-          SetWall "HKU\$tag"; reg unload "HKU\$tag" 2>$null | Out-Null
-        }
+        reg load "HKU\$tag" "$dat" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { SetWall "HKU\$tag"; reg unload "HKU\$tag" 2>$null | Out-Null }
       }
     }
     # default profile -> any user created later
-    if ((reg load "HKU\DEF" "C:\Users\Default\NTUSER.DAT" 2>$null); $LASTEXITCODE -eq 0) {
-      SetWall "HKU\DEF"; reg unload "HKU\DEF" 2>$null | Out-Null
-    }
+    reg load "HKU\DEF" "C:\Users\Default\NTUSER.DAT" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { SetWall "HKU\DEF"; reg unload "HKU\DEF" 2>$null | Out-Null }
   }
 } catch {}
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name RegisteredOrganization -Value $company -ErrorAction SilentlyContinue
