@@ -133,15 +133,20 @@ async function tick(){
   // Estimate from when the installer took over (reboot/installing event).
   const EST_SEC = /fast|⚡/i.test(d.osLabel||"") ? 10*60 : 16*60;  // fast dd vs ISO
   let sub = st.sub, barW = st.bar;
-  if (d.status==="installing" || d.status==="rebooting") {
+  if ((d.status==="installing" || d.status==="rebooting" || d.status==="running") && d.download && d.download.pct!=null && d.download.pct < 100) {
+    // Real download progress (the target is pulling the image from the panel).
+    const gb = (n)=> (n/1073741824).toFixed(1);
+    sub = `Downloading OS image to the server · ${d.download.pct}%  (${gb(d.download.received)} / ${gb(d.download.total)} GB)`;
+    barW = Math.max(6, Math.round(d.download.pct * 0.55));   // download = first ~55% of the bar
+  } else if (d.status==="installing" || d.status==="rebooting") {
     const logs = d.logs||[];
     const kick = [...logs].reverse().find(l => l.stage==="reboot" || l.stage==="reinstall");
     const t0 = kick ? new Date(kick.at).getTime() : (logs[0]? new Date(logs[0].at).getTime() : Date.now());
     const elapsed = Math.max(0,(Date.now()-t0)/1000);
     const frac = Math.min(0.97, elapsed/EST_SEC);           // never hit 100% until Online
-    barW = Math.max(st.bar, Math.round(20 + frac*77));       // 20% -> 97%
+    barW = Math.max(58, Math.round(58 + frac*39));          // 58% -> 97% (download filled the first ~55%)
     const remain = Math.max(0, Math.ceil((EST_SEC-elapsed)/60));
-    sub = remain>0 ? `Installing Windows in the background · about ${remain} min remaining…`
+    sub = remain>0 ? `Writing image + first boot · about ${remain} min remaining…`
                    : "Almost there · finishing up and waiting for the server to come online…";
   } else if (d.status==="online" || d.status==="completed") {
     barW = 100; sub = "The server is up and reachable. Connect with the details below.";

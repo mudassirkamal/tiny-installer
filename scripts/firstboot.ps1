@@ -86,13 +86,28 @@ try {
   $wp = Join-Path $dir "wallpaper.jpg"
   if (Get-Command curl.exe -ErrorAction SilentlyContinue) { curl.exe -s -L -o $wp $wallUrl } else { Invoke-WebRequest $wallUrl -OutFile $wp -UseBasicParsing }
   if (Test-Path $wp) {
-    Set-ItemProperty 'HKCU:\Control Panel\Desktop' -Name Wallpaper      -Value $wp -ErrorAction SilentlyContinue
-    Set-ItemProperty 'HKCU:\Control Panel\Desktop' -Name WallpaperStyle -Value 10  -ErrorAction SilentlyContinue
-    reg load "HKU\DEF" "C:\Users\Default\NTUSER.DAT" 2>$null | Out-Null
-    reg add "HKU\DEF\Control Panel\Desktop" /v Wallpaper      /t REG_SZ /d "$wp" /f | Out-Null
-    reg add "HKU\DEF\Control Panel\Desktop" /v WallpaperStyle /t REG_SZ /d 10   /f | Out-Null
-    reg unload "HKU\DEF" 2>$null | Out-Null
-    rundll32.exe user32.dll,UpdatePerUserSystemParameters 1, True
+    # We run as SYSTEM before the admin logs in, so set the wallpaper in EACH real
+    # user profile's hive (offline) + the Default profile. That way it shows the
+    # moment the customer connects over RDP.
+    function SetWall($hiveRoot) {
+      reg add "$hiveRoot\Control Panel\Desktop" /v Wallpaper      /t REG_SZ /d "$wp" /f | Out-Null
+      reg add "$hiveRoot\Control Panel\Desktop" /v WallpaperStyle /t REG_SZ /d 10   /f | Out-Null
+      reg add "$hiveRoot\Control Panel\Desktop" /v TileWallpaper  /t REG_SZ /d 0    /f | Out-Null
+    }
+    # every existing user profile (Administrator, etc.) that isn't loaded yet
+    Get-ChildItem "C:\Users" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+      $dat = Join-Path $_.FullName "NTUSER.DAT"
+      if (Test-Path $dat) {
+        $tag = "TIW_" + $_.Name
+        if ((reg load "HKU\$tag" "$dat" 2>$null); $LASTEXITCODE -eq 0) {
+          SetWall "HKU\$tag"; reg unload "HKU\$tag" 2>$null | Out-Null
+        }
+      }
+    }
+    # default profile -> any user created later
+    if ((reg load "HKU\DEF" "C:\Users\Default\NTUSER.DAT" 2>$null); $LASTEXITCODE -eq 0) {
+      SetWall "HKU\DEF"; reg unload "HKU\DEF" 2>$null | Out-Null
+    }
   }
 } catch {}
 Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name RegisteredOrganization -Value $company -ErrorAction SilentlyContinue

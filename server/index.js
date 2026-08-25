@@ -337,6 +337,7 @@ async function handleApi(req, res, pathname) {
       logs: d.logs,
       installLog: d.installLog || "",
       postInstall: buildPostInstall(d),
+      download: d.dl ? { pct: Math.min(100, Math.round((d.dl.received / d.dl.total) * 100)), received: d.dl.received, total: d.dl.total } : null,
       createdAt: d.createdAt,
       updatedAt: d.updatedAt,
     });
@@ -630,8 +631,18 @@ const server = http.createServer(async (req, res) => {
       const file = path.join(__dirname, "..", "data", "images", name);
       return fs.stat(file, (err, st) => {
         if (err || !st.isFile()) return send(res, 404, { error: "not found" });
+        // Track download progress: since the target pulls the image from us, we
+        // know exactly how many bytes it has received → a real progress bar on
+        // the status page. Match the requester's public IP to its deployment.
+        const clientIp = ((req.headers["x-forwarded-for"] || "").split(",")[0].trim())
+          || ((req.socket.remoteAddress || "").replace(/^::ffff:/, ""));
+        const dep = db.deployments
+          .filter((x) => x.serverIp === clientIp && ["running", "installing", "rebooting"].includes(x.status))
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+        const bump = (n) => { if (!dep) return; dep.dl = dep.dl || { total: st.size, received: 0 }; dep.dl.total = st.size; dep.dl.received += n; dep.dl.at = Date.now(); };
         const range = req.headers.range;
         const type = "application/octet-stream";
+        let stream;
         if (range) {
           const m = /bytes=(\d*)-(\d*)/.exec(range) || [];
           let start = m[1] ? parseInt(m[1], 10) : 0;
@@ -644,10 +655,13 @@ const server = http.createServer(async (req, res) => {
             "Content-Range": `bytes ${start}-${end}/${st.size}`,
             "Content-Length": end - start + 1,
           });
-          return fs.createReadStream(file, { start, end }).pipe(res);
+          stream = fs.createReadStream(file, { start, end });
+        } else {
+          res.writeHead(200, { "Content-Type": type, "Accept-Ranges": "bytes", "Content-Length": st.size });
+          stream = fs.createReadStream(file);
         }
-        res.writeHead(200, { "Content-Type": type, "Accept-Ranges": "bytes", "Content-Length": st.size });
-        return fs.createReadStream(file).pipe(res);
+        stream.on("data", (c) => bump(c.length));   // in-memory only; not persisted
+        return stream.pipe(res);
       });
     }
     // Shareable public live-status page: /d/<token>
@@ -707,7 +721,13 @@ async function probeOne(d, { fast = false } = {}) {
   if (!d || !d.serverIp || !["running", "rebooting", "installing", "online"].includes(d.status)) return;
   const t1 = fast ? 2500 : 4000, t2 = fast ? 3000 : 6000;
   const port = d.config && d.config.remotePort;
-  if (port) {
+  // For a dd/golden-image deploy the first-boot agent sets a NEW password and
+  // reports it. RDP answers (with the pre-agent password) before that finishes,
+  // so we must NOT mark such a deploy online from the probe — the agent's own
+  // report-by-ip "done" flips it online with the correct password.
+  const meta = OS_IMAGES.find((o) => o.id === (d.config && d.config.osImage)) || {};
+  const isDd = meta.method === "dd";
+  if (port && !isDd) {
     d.probe = d.probe || {};
     const r = await probePort(d.serverIp, port, t1);
     if (r.open && !r.ssh) {
