@@ -181,6 +181,18 @@ function rateLimit(key, max, windowMs) {
   return arr.length <= max;
 }
 
+// Read-only status key: lets a trusted backend (e.g. the FOMZE admin) read
+// /api/status/<token> for PRIVATE deployments without the owner's login + 2FA.
+// It unlocks that one read-only endpoint and nothing else. Disabled unless a long
+// TI_STATUS_KEY is configured on the host.
+function hasValidStatusKey(req) {
+  const want = process.env.TI_STATUS_KEY || "";
+  const got = String(req.headers["x-status-key"] || "");
+  if (want.length < 24 || !got) return false;
+  const a = Buffer.from(got), b = Buffer.from(want);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 // ---- TOTP 2FA (RFC 6238, zero-dependency) ---------------------------------
 function base32Decode(s) {
   const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -404,8 +416,13 @@ async function handleApi(req, res, pathname) {
   if (mStatus && method === "GET") {
     const d = db.deployments.find((x) => x.token === mStatus[1]);
     if (!d) return send(res, 404, { error: "Unknown token." });
-    // Private tracking: only the owner (signed in) may view. Public when off.
-    if (d.config.privateTracking) {
+    // A wrong status key is rate-limited per IP (brute-force protection).
+    const statusKeyOk = hasValidStatusKey(req);
+    if (req.headers["x-status-key"] && !statusKeyOk && !rateLimit("statuskey:" + clientIp(req), 10, 5 * 60 * 1000))
+      return send(res, 429, { error: "Too many attempts. Wait a few minutes and try again." });
+    // Private tracking: only the owner (signed in) or a valid status key may view.
+    // Public when off.
+    if (d.config.privateTracking && !statusKeyOk) {
       const u = currentUser(req);
       if (!u || u.id !== d.userId)
         return send(res, 403, { error: "This deployment is private — sign in as the owner to view it." });

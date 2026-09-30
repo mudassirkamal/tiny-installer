@@ -8,6 +8,7 @@ services:
       - TI_SECRET=${TI_SECRET:?set TI_SECRET in .env}
       - TI_ACCESS_KEY=${TI_ACCESS_KEY:-fomze-owner-change-me}
       - TI_TOTP_SECRET=${TI_TOTP_SECRET:-}
+      - TI_STATUS_KEY=${TI_STATUS_KEY:-}
     volumes:
       - ./data:/app/data
     # Bind to localhost only: with the Caddy TLS profile, Caddy reaches the panel

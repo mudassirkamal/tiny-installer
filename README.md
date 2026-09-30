@@ -114,6 +114,13 @@ it shows the status (`ready → running → completed`/`failed`), a stage timeli
 **connection card** with the **server IP, port, username and password** (each copyable).
 `setup.sh` reports its public IP and each stage back to `POST /api/deploy/:token/log`.
 
+**Reading status from another backend.** `GET /api/status/:token` returns the same data as
+JSON. A deployment with *private tracking* normally needs the owner's login (+ 2FA). To let a
+trusted backend read it, set `TI_STATUS_KEY` (24+ chars, `openssl rand -hex 32`) on the host
+and send it as the `x-status-key` header. The key unlocks only that read-only endpoint —
+it cannot log in, deploy, or delete — and wrong keys are rate-limited per IP. Leave it unset
+to disable the feature. Note the response includes the server credentials, so keep the key secret.
+
 ## Does it really install Windows on a Linux VPS?
 
 **Yes — Windows *and* Linux, for real.** The `setup.sh` runner drives the open-source
@@ -181,6 +188,7 @@ Now your one-liner points at `https://panel.example.com/setup.sh` and works from
 | POST | `/api/deploy` | cookie | create deployment → token + command |
 | GET  | `/api/deploy/:token` | **token** | runner config (called by `setup.sh`) |
 | POST | `/api/deploy/:token/log` | **token** | progress reporting |
+| GET  | `/api/status/:token` | **token** (+ owner cookie or `x-status-key` if private) | live status JSON |
 | POST | `/api/deploy/:token/regenerate` | cookie | rotate a leaked token |
 | GET/POST | `/api/profiles` | cookie | list / save deployment profiles |
 | DELETE | `/api/profiles/:id` | cookie | delete a saved profile |
